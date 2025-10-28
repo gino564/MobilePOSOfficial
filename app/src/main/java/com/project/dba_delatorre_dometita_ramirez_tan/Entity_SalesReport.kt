@@ -17,4 +17,3 @@ data class TopSalesItem(
     val totalRevenue: Double
 
 )
-git

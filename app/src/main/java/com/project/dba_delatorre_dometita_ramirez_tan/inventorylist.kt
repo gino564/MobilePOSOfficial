@@ -33,6 +33,8 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 
@@ -44,13 +46,17 @@ fun InventoryListScreen(
     navController: NavController,
     viewModel3: ProductViewModel
 ) {
+    // ✅ Fetch products when screen opens
     LaunchedEffect(Unit) {
+        android.util.Log.d("InventoryList", "🔄 Fetching products from Firebase...")
         viewModel3.getAllProducts()
     }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val products = viewModel3.productList
+    val isLoading = viewModel3.isLoading
+    val errorMessage = viewModel3.errorMessage
 
     var productToDelete by remember { mutableStateOf<Entity_Products?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -119,170 +125,208 @@ fun InventoryListScreen(
                 }
             },
             content = { paddingValues ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(brush = gradient)
-                        .padding(paddingValues)
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-
-                    // 🔍 Search
-                    TextField(
-                        value = searchText,
-                        onValueChange = { searchText = it },
-                        placeholder = { Text("Search product...") },
+                // ✅ Show loading indicator
+                if (isLoading) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            cursorColor = Color.Black,
-                            focusedTextColor = Color.Black,
-                            unfocusedTextColor = Color.Black
-                        ),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-
-                    // 🏷️ Categories
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .fillMaxSize()
+                            .background(brush = gradient)
+                            .padding(paddingValues),
+                        contentAlignment = Alignment.Center
                     ) {
-                        chipOptions.forEach { option ->
-                            FilterChip(
-                                selected = selectedOption == option,
-                                onClick = { selectedOption = option },
-                                label = {
-                                    Text(
-                                        option,
-                                        color = if (selectedOption == option) selectedTextColor else unselectedTextColor
-                                    )
-                                },
-                                modifier = Modifier.padding(horizontal = 1.dp),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    containerColor = unselectedChipColor,
-                                    selectedContainerColor = selectedChipColor
-                                ),
-                                border = null
-                            )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color.White)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Loading products...", color = Color.White, fontSize = 16.sp)
                         }
                     }
-
-                    // 📦 Products
-                    if (filteredProducts.isEmpty()) {
-                        Text(
-                            text = "No products available.",
-                            fontSize = 18.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    } else {
-                        filteredProducts.forEach { product ->
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(brush = gradient)
+                            .padding(paddingValues)
+                            .padding(horizontal = 24.dp, vertical = 16.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        // ✅ Show error message if fetch failed
+                        errorMessage?.let { error ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp),
-                                elevation = CardDefaults.cardElevation(4.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White)
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFCDD2))
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .padding(12.dp)
-                                        .fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    // 🖼️ Image
-                                    if (product.imageUri.isNotEmpty()) {
-                                        Image(
-                                            painter = rememberAsyncImagePainter(File(product.imageUri)),
-                                            contentDescription = "Product Image",
-                                            modifier = Modifier
-                                                .size(100.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color.White)
+                                Text(
+                                    text = error,
+                                    modifier = Modifier.padding(16.dp),
+                                    color = Color(0xFFB71C1C)
+                                )
+                            }
+                        }
+
+                        // 🔍 Search
+                        TextField(
+                            value = searchText,
+                            onValueChange = { searchText = it },
+                            placeholder = { Text("Search product...") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                cursorColor = Color.Black,
+                                focusedTextColor = Color.Black,
+                                unfocusedTextColor = Color.Black
+                            ),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        // 🏷️ Categories
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            chipOptions.forEach { option ->
+                                FilterChip(
+                                    selected = selectedOption == option,
+                                    onClick = { selectedOption = option },
+                                    label = {
+                                        Text(
+                                            option,
+                                            color = if (selectedOption == option) selectedTextColor else unselectedTextColor
                                         )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(100.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color.LightGray),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text("No Image", fontSize = 12.sp, color = Color.DarkGray)
-                                        }
-                                    }
+                                    },
+                                    modifier = Modifier.padding(horizontal = 1.dp),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        containerColor = unselectedChipColor,
+                                        selectedContainerColor = selectedChipColor
+                                    ),
+                                    border = null
+                                )
+                            }
+                        }
 
-                                    // 📄 Details
-                                    Column(
+                        // 📦 Products
+                        if (filteredProducts.isEmpty()) {
+                            Text(
+                                text = if (products.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
+                                fontSize = 18.sp,
+                                color = Color.White,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        } else {
+                            filteredProducts.forEach { product ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    elevation = CardDefaults.cardElevation(4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                ) {
+                                    Row(
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .padding(horizontal = 12.dp)
+                                            .padding(12.dp)
+                                            .fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(product.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                        Text(product.category, fontSize = 14.sp, color = Color(0xFF4E342E))
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("${product.quantity} pcs", fontSize = 14.sp)
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("₱${product.price}", fontSize = 14.sp)
+                                        // 🖼️ Image
+                                        if (product.imageUri.isNotEmpty()) {
+                                            Image(
+                                                painter = rememberAsyncImagePainter(
+                                                    model = product.imageUri,  // ✅ Now loads from Firebase Storage URL
+                                                    error = painterResource(R.drawable.ic_launcher_foreground),
+                                                    placeholder = painterResource(R.drawable.ic_launcher_foreground)
+                                                ),
+                                                contentDescription = "Product Image",
+                                                modifier = Modifier
+                                                    .size(100.dp)
+                                                    .clip(RoundedCornerShape(8.dp)),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(100.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.LightGray),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("No Image", fontSize = 12.sp, color = Color.DarkGray)
+                                            }
                                         }
-                                    }
 
-                                    // 🛠️ Actions
-                                    Column {
-                                        IconButton(onClick = {
-                                            navController.navigate("EditProductScreen/${product.id}")
-                                        }) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFF6D4C41))
+                                        // 📄 Details
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(horizontal = 12.dp)
+                                        ) {
+                                            Text(product.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                            Text(product.category, fontSize = 14.sp, color = Color(0xFF4E342E))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("${product.quantity} pcs", fontSize = 14.sp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("₱${product.price}", fontSize = 14.sp)
+                                            }
                                         }
-                                        IconButton(onClick = {
-                                            productToDelete = product
-                                            showDeleteDialog = true
-                                        }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFD32F2F))
+
+                                        // 🛠️ Actions
+                                        Column {
+                                            IconButton(onClick = {
+                                                android.util.Log.d("InventoryList", "🖊️ Editing product: ${product.name}")
+                                                android.util.Log.d("InventoryList", "Firebase ID: ${product.firebaseId}")
+                                                navController.navigate("EditProductScreen/${product.firebaseId}")
+                                            }) {
+                                                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFF6D4C41))
+                                            }
+                                            IconButton(onClick = {
+                                                productToDelete = product
+                                                showDeleteDialog = true
+                                            }) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFD32F2F))
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // 🔔 Delete confirmation dialog
-                    if (showDeleteDialog && productToDelete != null) {
-                        AlertDialog(
-                            onDismissRequest = { showDeleteDialog = false },
-                            title = { Text("Confirm Delete", fontFamily = FontFamily.Serif) },
-                            text = { Text("Are you sure you want to delete this record?", fontFamily = FontFamily.Serif) },
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        viewModel3.deleteProduct(productToDelete!!)
-                                        showDeleteDialog = false
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3E2723))
-                                ) {
-                                    Text("Yes", color = Color.White)
+                        // 🔔 Delete confirmation dialog
+                        if (showDeleteDialog && productToDelete != null) {
+                            AlertDialog(
+                                onDismissRequest = { showDeleteDialog = false },
+                                title = { Text("Confirm Delete", fontFamily = FontFamily.Serif) },
+                                text = { Text("Are you sure you want to delete this record?", fontFamily = FontFamily.Serif) },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            viewModel3.deleteProduct(productToDelete!!)
+                                            showDeleteDialog = false
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3E2723))
+                                    ) {
+                                        Text("Yes", color = Color.White)
+                                    }
+                                },
+                                dismissButton = {
+                                    Button(
+                                        onClick = { showDeleteDialog = false },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF795548))
+                                    ) {
+                                        Text("Cancel", color = Color.White)
+                                    }
                                 }
-                            },
-                            dismissButton = {
-                                Button(
-                                    onClick = { showDeleteDialog = false },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF795548))
-                                ) {
-                                    Text("Cancel", color = Color.White)
-                                }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }

@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +37,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 
 @Composable
-fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewModel) {
+fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewModel, recipeViewModel: RecipeViewModel) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var cartVisible by remember { mutableStateOf(false) }
@@ -50,10 +51,30 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     val totalPrice = cartItems.sumOf { it.price.toInt() }
     val gradient = Brush.verticalGradient(listOf(Color(0xFFF3D3BD), Color(0xFF837060)))
 
-    val products = viewModel3.productList.filter {
-        it.name.contains(searchQuery.value, ignoreCase = true) ||
-                it.category.contains(searchQuery.value, ignoreCase = true)
-    }
+    val products = viewModel3.productList
+        .filter {
+            it.name.contains(searchQuery.value, ignoreCase = true) ||
+                    it.category.contains(searchQuery.value, ignoreCase = true)
+        }
+        .map { product ->
+            // ✅ Only calculate for beverages, show actual quantity for everything else
+            var availableQty by remember { mutableStateOf(product.quantity) }
+
+            LaunchedEffect(product.firebaseId, viewModel3.productList) {
+                availableQty = if (product.category.equals("beverage", ignoreCase = true)) {
+                    // Calculate based on recipe for beverages
+                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (Beverage): Calculated = $calculated")
+                    calculated
+                } else {
+                    // Use actual stock for ingredients and pastries
+                    android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
+                    product.quantity
+                }
+            }
+
+            product.copy(quantity = availableQty)
+        }
 
     ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
         SidebarDrawer(navController)
@@ -159,16 +180,37 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                         ) {
                                             if (product.imageUri.isNotEmpty()) {
                                                 Image(
-                                                    painter = rememberAsyncImagePainter(product.imageUri),
+                                                    painter = rememberAsyncImagePainter(
+                                                        model = product.imageUri,  // ✅ Now loads from Firebase Storage URL
+                                                        error = painterResource(R.drawable.ic_launcher_foreground),
+                                                        placeholder = painterResource(R.drawable.ic_launcher_foreground)
+                                                    ),
                                                     contentDescription = null,
                                                     modifier = Modifier
                                                         .height(90.dp)
-                                                        .fillMaxWidth()
+                                                        .fillMaxWidth(),
+                                                    contentScale = ContentScale.Crop
                                                 )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .height(90.dp)
+                                                        .fillMaxWidth()
+                                                        .background(Color.LightGray, RoundedCornerShape(8.dp)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text("No Image", fontSize = 12.sp, color = Color.DarkGray)
+                                                }
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Text("₱${product.price}", fontSize = 12.sp)
+                                            Text(
+                                                "Available: ${product.quantity}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = if (product.quantity > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
+                                            )
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Button(
                                                 onClick = {
@@ -191,7 +233,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                     } else {
                         Text("Order Summary", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
 
-                        cartItems.groupBy { it.id }.forEach { (_, items) ->
+                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
                             val product = items.first()
                             val quantity = items.size
 
@@ -299,7 +341,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                     val change = cashAmount - totalPrice
 
                     Column {
-                        cartItems.groupBy { it.id }.forEach { (_, items) ->
+                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
                             val product = items.first()
                             val quantity = items.size
                             Text("${product.name} x$quantity - ₱${product.price.toInt() * quantity}")
@@ -323,13 +365,16 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         val cashAmount = cashReceived.toIntOrNull() ?: 0
                         val change = cashAmount - totalPrice
 
-                        if (change < 0) return@TextButton // Don't proceed if cash is not enough
+                        if (change < 0) return@TextButton
 
                         val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
-                        cartItems.groupBy { it.id }.forEach { (_, items) ->
+                        // ✅ Process orders and deduct ingredients
+                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->  // ✅ Group by firebaseId instead of id
                             val product = items.first()
                             val quantity = items.size
+
+                            // Save sale
                             val sale = Entity_SalesReport(
                                 productName = product.name,
                                 quantity = quantity,
@@ -337,12 +382,18 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                 orderDate = currentDate
                             )
                             viewModel3.insertSalesReport(sale)
+
+                            // ✅ Deduct ingredients based on recipe using firebaseId
+                            recipeViewModel.processOrder(product.firebaseId, quantity)
                         }
 
                         cartItems = emptyList()
                         cashReceived = ""
                         showReceiptDialog = false
                         cartVisible = false
+
+                        // ✅ Refresh product list to show updated quantities
+                        viewModel3.getAllProducts()
                     }) {
                         Text("Done")
                     }

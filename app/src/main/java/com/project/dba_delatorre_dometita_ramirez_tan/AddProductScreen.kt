@@ -211,14 +211,16 @@ fun AddProductScreen(
                                     val isValid = !(nameError || categoryError || priceError || quantityError || imageError)
 
                                     if (isValid) {
-                                        val imagePath = copyImageToInternalStorage(context, selectedImageUri!!)
+                                        android.util.Log.d("AddProductScreen", "🆕 Creating new product...")
+                                        android.util.Log.d("AddProductScreen", "Selected image URI: $selectedImageUri")
+
                                         viewModel3.insertProduct(
                                             Entity_Products(
                                                 name = productName.trim(),
                                                 category = productCategory.trim(),
                                                 price = productPrice.toDouble(),
                                                 quantity = productQuantity.toInt(),
-                                                imageUri = imagePath
+                                                imageUri = selectedImageUri.toString()
                                             )
                                         )
                                         showDialog = true

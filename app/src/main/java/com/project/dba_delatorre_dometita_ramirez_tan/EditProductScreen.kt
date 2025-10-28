@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -38,21 +39,41 @@ fun EditProductScreen(
     viewModel3: ProductViewModel,
     productToEdit: Entity_Products
 ) {
-    var name by remember { mutableStateOf(TextFieldValue(productToEdit.name)) }
-    var category by remember { mutableStateOf(TextFieldValue(productToEdit.category)) }
-    var price by remember { mutableStateOf(TextFieldValue(productToEdit.price.toString())) }
-    var quantity by remember { mutableStateOf(TextFieldValue(productToEdit.quantity.toString())) }
-    var imageUri by remember { mutableStateOf(TextFieldValue(productToEdit.imageUri)) }
+    // ✅ Use simple remember without keys
+    var name by remember { mutableStateOf(TextFieldValue("")) }
+    var category by remember { mutableStateOf(TextFieldValue("")) }
+    var price by remember { mutableStateOf(TextFieldValue("")) }
+    var quantity by remember { mutableStateOf(TextFieldValue("")) }
+    var imageUri by remember { mutableStateOf(TextFieldValue("")) }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+
+// ✅ Update states when product changes
+    LaunchedEffect(productToEdit.firebaseId) {
+        android.util.Log.d("EditProductScreen", "Loading product: ${productToEdit.name}")
+        android.util.Log.d("EditProductScreen", "Product firebaseId: ${productToEdit.firebaseId}")
+        android.util.Log.d("EditProductScreen", "Product imageUri: ${productToEdit.imageUri}")
+
+        name = TextFieldValue(productToEdit.name)
+        category = TextFieldValue(productToEdit.category)
+        price = TextFieldValue(productToEdit.price.toString())
+        quantity = TextFieldValue(productToEdit.quantity.toString())
+        imageUri = TextFieldValue(productToEdit.imageUri)
+        selectedImageUri = null
+    }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        selectedImageUri = uri
-        imageUri = TextFieldValue(uri?.toString() ?: "")
+        uri?.let {
+            selectedImageUri = it
+            imageUri = TextFieldValue(it.toString())
+            android.util.Log.d("EditProductScreen", "New image selected: $it")
+        }
     }
+
 
     val gradient = Brush.verticalGradient(
         colors = listOf(Color(0xFFF3D3BD), Color(0xFF837060))
@@ -101,24 +122,58 @@ fun EditProductScreen(
                         Text("Update your product details", fontSize = 14.sp, color = Color.Gray)
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        if (imageUri.text.isNotEmpty()) {
-                            Image(
-                                painter = rememberAsyncImagePainter(imageUri.text),
-                                contentDescription = "Product Image",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(180.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { imagePickerLauncher.launch("image/*") },
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.LightGray)
+                                .clickable { imagePickerLauncher.launch("image/*") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val imageModel = if (selectedImageUri != null) {
+                                selectedImageUri  // Show newly selected image
+                            } else {
+                                imageUri.text     // Show existing Firebase URL
+                            }
 
-                            )
-                            Text(
-                                text = "Tap to change product image",
-                                fontSize = 12.sp,
-                                color = Color(0xFF4B3832),
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
+                            // ✅ Log what we're trying to load
+                            LaunchedEffect(imageModel) {
+                                android.util.Log.d("EditProductScreen", "Attempting to load image: $imageModel")
+                            }
+
+                            if (imageUri.text.isNotEmpty()) {
+                                Image(
+                                    painter = rememberAsyncImagePainter(
+                                        model = imageModel,
+                                        error = painterResource(R.drawable.ic_launcher_foreground),
+                                        placeholder = painterResource(R.drawable.ic_launcher_foreground),
+                                        onError = { error ->
+                                            android.util.Log.e("EditProductScreen", "Image load failed: ${error.result.throwable.message}")
+                                        }
+                                    ),
+                                    contentDescription = "Product Image",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    text = "No Image\nTap to select",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
                         }
+
+                        Text(
+                            text = if (imageUri.text.isNotEmpty()) "Tap to change product image" else "Tap to add product image",
+                            fontSize = 12.sp,
+                            color = Color(0xFF4B3832),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         val textFieldModifier = Modifier
                             .fillMaxWidth()
@@ -160,12 +215,19 @@ fun EditProductScreen(
 
                         Button(
                             onClick = {
-                                val finalImageUri = selectedImageUri?.let {
-                                    copyImageToInternalStorage(context, it)
-                                } ?: imageUri.text
+                                // Determine which image URI to use
+                                val finalImageUri = if (selectedImageUri != null) {
+                                    // User selected a NEW image - use the URI directly (don't copy to internal storage)
+                                    // ProductRepository.update() will upload it to Firebase Storage
+                                    selectedImageUri.toString()
+                                } else {
+                                    // Keep existing Firebase URL
+                                    imageUri.text
+                                }
 
                                 val updatedProduct = Entity_Products(
                                     id = productToEdit.id,
+                                    firebaseId = productToEdit.firebaseId,
                                     name = name.text,
                                     category = category.text,
                                     price = price.text.toDoubleOrNull() ?: 0.0,
@@ -173,6 +235,7 @@ fun EditProductScreen(
                                     imageUri = finalImageUri
                                 )
 
+                                android.util.Log.d("EditProductScreen", "Saving product with imageUri: $finalImageUri")
                                 viewModel3.updateProduct(updatedProduct)
                                 navController.popBackStack()
                             },

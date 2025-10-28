@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -82,9 +83,11 @@ dependencies {
     implementation("androidx.room:room-paging:$room_version")
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     implementation("io.coil-kt:coil-compose:2.4.0")
-
     implementation("com.jakewharton.threetenabp:threetenabp:1.4.5")
-
-
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation("com.google.firebase:firebase-storage")
+    implementation("com.cloudinary:cloudinary-android:2.5.0")
 
 }
