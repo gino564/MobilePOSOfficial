@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class Entity_SalesReport(
     @PrimaryKey(autoGenerate = true) val orderId: Int = 0,
     val productName: String,
+    val category: String = "",
     val quantity: Int,
     val price: Double,
     val orderDate: String // You can store this as ISO-8601 string like "2025-07-09"

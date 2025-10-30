@@ -48,9 +48,9 @@ class RecipeViewModel(private val repository: RecipeRepository) : ViewModel() {
     }
 
     // Deduct ingredients when order is completed
-    fun processOrder(productFirebaseId: String, quantity: Int) {
+    fun processOrder(productFirebaseId: String, quantity: Int, saveToSales: (Entity_SalesReport) -> Unit) {
         viewModelScope.launch {
-            repository.deductIngredients(productFirebaseId, quantity)
+            repository.deductIngredients(productFirebaseId, quantity, saveToSales)
         }
     }
 }

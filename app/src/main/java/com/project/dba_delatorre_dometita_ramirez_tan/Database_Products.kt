@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         Entity_Recipe::class,
         Entity_RecipeIngredient::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = false
 )
 abstract class Database_Products : RoomDatabase() {

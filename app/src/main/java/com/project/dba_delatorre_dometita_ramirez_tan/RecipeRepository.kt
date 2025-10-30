@@ -292,7 +292,7 @@ class RecipeRepository(
 
     // ============ DEDUCT INGREDIENTS ON ORDER ============
 
-    suspend fun deductIngredients(productFirebaseId: String, quantity: Int) {
+    suspend fun deductIngredients(productFirebaseId: String, quantity: Int, saveToSales: (Entity_SalesReport) -> Unit) {
         try {
             android.util.Log.d("RecipeRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
             android.util.Log.d("RecipeRepo", "🔻 Deducting ingredients for $quantity servings")
@@ -320,14 +320,17 @@ class RecipeRepository(
 
             android.util.Log.d("RecipeRepo", "📦 Deducting ${ingredients.size} ingredients:")
 
+            // Get current timestamp for all ingredient sales
+            val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+
             // Deduct each ingredient
             ingredients.forEach { ingredient ->
-                // ✅ Get product by firebaseId instead of id
+                // ✅ Get product by firebaseId
                 val product = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
 
                 if (product != null) {
-                    val amountToDeduct = (ingredient.quantityNeeded * quantity).toInt()
-                    val newQuantity = (product.quantity - amountToDeduct).coerceAtLeast(0)
+                    val amountToDeduct = ingredient.quantityNeeded * quantity
+                    val newQuantity = (product.quantity - amountToDeduct.toInt()).coerceAtLeast(0)
 
                     android.util.Log.d("RecipeRepo", "  📉 ${ingredient.ingredientName}:")
                     android.util.Log.d("RecipeRepo", "     Before: ${product.quantity} ${ingredient.unit}")
@@ -344,6 +347,20 @@ class RecipeRepository(
                         .await()
 
                     android.util.Log.d("RecipeRepo", "     ✅ Updated in Room and Firebase")
+
+                    // ✅ Save ingredient deduction to sales table
+                    val ingredientSale = Entity_SalesReport(
+                        productName = product.name,
+                        category = product.category,  // ✅ This will be "ingredient"
+                        quantity = amountToDeduct.toInt(),  // ✅ Actual grams deducted!
+                        price = 0.0,  // Ingredients don't have individual sale price (already in beverage price)
+                        orderDate = currentDate
+                    )
+
+                    // Save to sales via callback
+                    saveToSales(ingredientSale)
+                    android.util.Log.d("RecipeRepo", "     💰 Ingredient sale recorded: ${amountToDeduct.toInt()}g")
+
                 } else {
                     android.util.Log.w("RecipeRepo", "  ⚠️ Product not found for ingredient: ${ingredient.ingredientName}")
                 }

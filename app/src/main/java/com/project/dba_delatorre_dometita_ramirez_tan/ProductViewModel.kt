@@ -90,6 +90,11 @@ class ProductViewModel(private val repository: ProductRepository) : ViewModel() 
             getAllProducts() // refresh after delete
         }
     }
+    fun deductProductStock(productFirebaseId: String, quantity: Int) {
+        viewModelScope.launch {
+            repository.deductProductStock(productFirebaseId, quantity)
+        }
+    }
 
     fun updateProduct(product: Entity_Products) {
         viewModelScope.launch {

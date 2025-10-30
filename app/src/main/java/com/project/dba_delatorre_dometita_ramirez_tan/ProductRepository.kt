@@ -165,10 +165,9 @@ class ProductRepository(
 
                 android.util.Log.d("ProductRepo", "✅ Parsed ${firebaseProducts.size} products from Firestore")
 
-                // Save to Room
-
+                // ✅ Save to Room using REPLACE strategy (no need to delete!)
                 if (firebaseProducts.isNotEmpty()) {
-                    daoProducts.insertProducts(firebaseProducts)  // ✅ Just insert with REPLACE
+                    daoProducts.insertProducts(firebaseProducts)  // OnConflictStrategy.REPLACE
                     android.util.Log.d("ProductRepo", "✅ Synced to Room database")
                 }
 
@@ -302,7 +301,55 @@ class ProductRepository(
         }
     }
 
+    // ============ DEDUCT PRODUCT STOCK (FOR NON-BEVERAGES) ============
+
+    suspend fun deductProductStock(productFirebaseId: String, quantity: Int) {
+        withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.d("ProductRepo", "📉 Deducting product stock...")
+                android.util.Log.d("ProductRepo", "Product Firebase ID: $productFirebaseId")
+                android.util.Log.d("ProductRepo", "Quantity to deduct: $quantity")
+
+                // Get the product
+                val product = daoProducts.getProductByFirebaseId(productFirebaseId)
+
+                if (product == null) {
+                    android.util.Log.w("ProductRepo", "⚠️ Product not found!")
+                    android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                    return@withContext
+                }
+
+                android.util.Log.d("ProductRepo", "📦 Product found: ${product.name}")
+                android.util.Log.d("ProductRepo", "   Before: ${product.quantity}")
+
+                // Calculate new quantity
+                val newQuantity = (product.quantity - quantity).coerceAtLeast(0)
+                android.util.Log.d("ProductRepo", "   After: $newQuantity")
+
+                // Update Room
+                val updatedProduct = product.copy(quantity = newQuantity)
+                daoProducts.updateProduct(updatedProduct)
+
+                // Update Firebase
+                productsCollection.document(productFirebaseId)
+                    .update("quantity", newQuantity)
+                    .await()
+
+                android.util.Log.d("ProductRepo", "✅ Stock deducted successfully")
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            } catch (e: Exception) {
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.e("ProductRepo", "❌ Failed to deduct stock!")
+                android.util.Log.e("ProductRepo", "Error: ${e.message}", e)
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+        }
+    }
+
     // ============ SALES OPERATIONS ============
+
 
     suspend fun getAllSales(): List<Entity_SalesReport> {
         return daoSalesReport.getAllSales()
@@ -313,7 +360,43 @@ class ProductRepository(
     }
 
     suspend fun insertSalesReport(sale: Entity_SalesReport) {
-        daoSalesReport.insertSale(sale)
+        withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.d("ProductRepo", "💰 Saving sale to Firebase...")
+                android.util.Log.d("ProductRepo", "Product: ${sale.productName}")
+                android.util.Log.d("ProductRepo", "Category: ${sale.category}")
+                android.util.Log.d("ProductRepo", "Quantity: ${sale.quantity}")
+                android.util.Log.d("ProductRepo", "Price: ₱${sale.price}")
+                android.util.Log.d("ProductRepo", "Date: ${sale.orderDate}")
+
+                // Step 1: Create sale data for Firebase
+                val saleData = hashMapOf(
+                    "productName" to sale.productName,
+                    "category" to sale.category,
+                    "quantity" to sale.quantity,
+                    "price" to sale.price,
+                    "orderDate" to sale.orderDate,
+                    "timestamp" to System.currentTimeMillis()
+                )
+
+                // Step 2: Add to Firestore sales collection
+                val salesCollection = firestore.collection("sales")
+                val docRef = salesCollection.add(saleData).await()
+                android.util.Log.d("ProductRepo", "✅ Sale added to Firestore with ID: ${docRef.id}")
+
+                // Step 3: Save to Room
+                daoSalesReport.insertSale(sale)
+                android.util.Log.d("ProductRepo", "✅ Sale synced to Room")
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            } catch (e: Exception) {
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.e("ProductRepo", "❌ Failed to save sale!")
+                android.util.Log.e("ProductRepo", "Error: ${e.message}", e)
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+        }
     }
 
     suspend fun testFirebaseConnection(): String {

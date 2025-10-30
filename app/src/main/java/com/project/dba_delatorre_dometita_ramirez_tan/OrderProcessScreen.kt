@@ -370,21 +370,32 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
                         // ✅ Process orders and deduct ingredients
-                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->  // ✅ Group by firebaseId instead of id
+                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
                             val product = items.first()
                             val quantity = items.size
 
                             // Save sale
                             val sale = Entity_SalesReport(
                                 productName = product.name,
+                                category = product.category,
                                 quantity = quantity,
                                 price = product.price,
                                 orderDate = currentDate
                             )
                             viewModel3.insertSalesReport(sale)
 
-                            // ✅ Deduct ingredients based on recipe using firebaseId
-                            recipeViewModel.processOrder(product.firebaseId, quantity)
+                            // ✅ Only deduct ingredients for beverages
+                            if (product.category.equals("beverage", ignoreCase = true)) {
+                                android.util.Log.d("OrderProcess", "🔻 Processing beverage: ${product.name}")
+                                recipeViewModel.processOrder(product.firebaseId, quantity) { ingredientSale ->
+                                    // ✅ Save each ingredient deduction to sales
+                                    viewModel3.insertSalesReport(ingredientSale)
+                                }
+                            } else {
+                                // ✅ For pastries/ingredients, just deduct the product itself from inventory
+                                android.util.Log.d("OrderProcess", "📦 Deducting ${product.category}: ${product.name}")
+                                viewModel3.deductProductStock(product.firebaseId, quantity)
+                            }
                         }
 
                         cartItems = emptyList()
