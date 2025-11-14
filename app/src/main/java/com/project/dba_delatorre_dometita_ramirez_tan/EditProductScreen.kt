@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +26,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -41,25 +44,29 @@ fun EditProductScreen(
 ) {
     // ✅ Use simple remember without keys
     var name by remember { mutableStateOf(TextFieldValue("")) }
-    var category by remember { mutableStateOf(TextFieldValue("")) }
-    var price by remember { mutableStateOf(TextFieldValue("")) }
-    var quantity by remember { mutableStateOf(TextFieldValue("")) }
+    var category by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    var quantity by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf(TextFieldValue("")) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Dropdown state
+    var expandedCategory by remember { mutableStateOf(false) }
+    val categories = listOf("Ingredients", "Beverages", "Pastries")
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-// ✅ Update states when product changes
+    // ✅ Update states when product changes
     LaunchedEffect(productToEdit.firebaseId) {
         android.util.Log.d("EditProductScreen", "Loading product: ${productToEdit.name}")
         android.util.Log.d("EditProductScreen", "Product firebaseId: ${productToEdit.firebaseId}")
         android.util.Log.d("EditProductScreen", "Product imageUri: ${productToEdit.imageUri}")
 
         name = TextFieldValue(productToEdit.name)
-        category = TextFieldValue(productToEdit.category)
-        price = TextFieldValue(productToEdit.price.toString())
-        quantity = TextFieldValue(productToEdit.quantity.toString())
+        category = productToEdit.category
+        price = productToEdit.price.toString()
+        quantity = productToEdit.quantity.toString()
         imageUri = TextFieldValue(productToEdit.imageUri)
         selectedImageUri = null
     }
@@ -74,13 +81,11 @@ fun EditProductScreen(
         }
     }
 
-
     val gradient = Brush.verticalGradient(
         colors = listOf(Color(0xFFF3D3BD), Color(0xFF837060))
     )
 
     Scaffold(
-
         containerColor = Color.Transparent,
         content = { paddingValues ->
             Column(
@@ -187,28 +192,72 @@ fun EditProductScreen(
                             shape = RoundedCornerShape(20.dp)
                         )
 
-                        OutlinedTextField(
-                            value = category,
-                            onValueChange = { category = it },
-                            label = { Text("Category") },
-                            modifier = textFieldModifier,
-                            shape = RoundedCornerShape(20.dp)
-                        )
+                        // CATEGORY DROPDOWN
+                        ExposedDropdownMenuBox(
+                            expanded = expandedCategory,
+                            onExpandedChange = { expandedCategory = !expandedCategory },
+                            modifier = textFieldModifier
+                        ) {
+                            OutlinedTextField(
+                                value = category,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Category") },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Dropdown"
+                                    )
+                                },
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expandedCategory,
+                                onDismissRequest = { expandedCategory = false }
+                            ) {
+                                categories.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = { Text(cat) },
+                                        onClick = {
+                                            category = cat
+                                            expandedCategory = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
 
+                        // PRICE FIELD - Numeric only with decimal
                         OutlinedTextField(
                             value = price,
-                            onValueChange = { price = it },
+                            onValueChange = {
+                                // Only allow digits and single decimal point
+                                if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                    price = it
+                                }
+                            },
                             label = { Text("Price") },
                             modifier = textFieldModifier,
-                            shape = RoundedCornerShape(20.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                         )
 
+                        // QUANTITY FIELD - Integers only
                         OutlinedTextField(
                             value = quantity,
-                            onValueChange = { quantity = it },
+                            onValueChange = {
+                                // Only allow digits (no decimal for quantity)
+                                if (it.isEmpty() || it.matches(Regex("^\\d+$"))) {
+                                    quantity = it
+                                }
+                            },
                             label = { Text("Quantity") },
                             modifier = textFieldModifier,
-                            shape = RoundedCornerShape(20.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
 
                         Spacer(modifier = Modifier.height(24.dp))
@@ -229,14 +278,17 @@ fun EditProductScreen(
                                     id = productToEdit.id,
                                     firebaseId = productToEdit.firebaseId,
                                     name = name.text,
-                                    category = category.text,
-                                    price = price.text.toDoubleOrNull() ?: 0.0,
-                                    quantity = quantity.text.toIntOrNull() ?: 0,
+                                    category = category,
+                                    price = price.toDoubleOrNull() ?: 0.0,
+                                    quantity = quantity.toIntOrNull() ?: 0,
                                     imageUri = finalImageUri
                                 )
 
                                 android.util.Log.d("EditProductScreen", "Saving product with imageUri: $finalImageUri")
                                 viewModel3.updateProduct(updatedProduct)
+                                AuditHelper.logProductEdit(name.text)
+                                android.util.Log.d("EditProductScreen", "✅ Audit trail logged for product edit")
+
                                 navController.popBackStack()
                             },
                             modifier = Modifier

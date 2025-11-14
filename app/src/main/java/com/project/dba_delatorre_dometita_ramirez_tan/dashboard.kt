@@ -3,6 +3,8 @@
 
 package com.project.dba_delatorre_dometita_ramirez_tan
 
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -371,8 +373,6 @@ fun SidebarDrawer(navController: NavController) {
             "Overview" to Icons.Filled.Home,
             "Order Process" to Icons.Filled.ShoppingCart,
             "Inventory List" to Icons.Filled.Email,
-            "Account List" to Icons.Filled.Person,
-            "Sales Report" to Icons.Filled.Settings,
             "Log Out" to Icons.AutoMirrored.Filled.ExitToApp
         )
 
@@ -405,6 +405,21 @@ fun SidebarDrawer(navController: NavController) {
                 confirmButton = {
                     Button(
                         onClick = {
+                            // ✅ Get BOTH username and full name BEFORE clearing session
+                            val username = UserSession.currentUser?.Entity_username ?: "Unknown"
+                            val fullName = UserSession.getUserFullName()
+
+                            UserSession.logout()
+                            android.util.Log.d("Logout", "🔍 Username before logout: $username")
+                            android.util.Log.d("Logout", "🔍 Full name before logout: $fullName")
+
+                            // ✅ Log logout with BOTH parameters
+                            AuditHelper.logLogout(username, fullName)
+                            android.util.Log.d("Logout", "✅ Audit trail logged for logout")
+
+                            // ✅ THEN clear session
+                            UserSession.logout()
+
                             showLogoutDialog = false
                             navController.navigate(Routes.R_Login.routes) {
                                 popUpTo(0) { inclusive = true }
@@ -462,8 +477,6 @@ fun DrawerMenuItem(
                     "Overview" -> navController.navigate(Routes.R_DashboardScreen.routes)
                     "Order Process" -> navController.navigate(Routes.OrderProcess.routes)
                     "Inventory List" -> navController.navigate(Routes.R_InventoryList.routes)
-                    "Account List" -> navController.navigate(Routes.UserList.routes)
-                    "Sales Report" -> navController.navigate(Routes.R_SalesReport.routes)
                 }
             }
             .padding(horizontal = 24.dp, vertical = 16.dp)

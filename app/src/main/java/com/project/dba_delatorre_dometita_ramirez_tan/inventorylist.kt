@@ -61,7 +61,7 @@ fun InventoryListScreen(
     var productToDelete by remember { mutableStateOf<Entity_Products?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf(TextFieldValue("")) }
-    val chipOptions = listOf("All", "Beverages", "Pastries")
+    val chipOptions = listOf("All", "Beverages", "Pastries", "Ingredients")
     var selectedOption by remember { mutableStateOf("All") }
 
     val selectedChipColor = Color(0xFF6F4E37)
@@ -309,6 +309,9 @@ fun InventoryListScreen(
                                 confirmButton = {
                                     Button(
                                         onClick = {
+                                            // ✅ ADD THIS - Log product deletion to audit trail
+                                            AuditHelper.logProductDelete(productToDelete!!.name)
+                                            android.util.Log.d("InventoryList", "✅ Audit trail logged for product delete")
                                             viewModel3.deleteProduct(productToDelete!!)
                                             showDeleteDialog = false
                                         },

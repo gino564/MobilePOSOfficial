@@ -46,12 +46,15 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     val searchQuery = remember { mutableStateOf("") }
     var showReceiptDialog by remember { mutableStateOf(false) }
     var cashReceived by remember { mutableStateOf("") }
+    var refreshTrigger by remember { mutableStateOf(0) }
 
 
     val totalPrice = cartItems.sumOf { it.price.toInt() }
     val gradient = Brush.verticalGradient(listOf(Color(0xFFF3D3BD), Color(0xFF837060)))
 
     val products = viewModel3.productList
+        // ✅ Filter out Ingredients from being displayed
+        .filter { !it.category.equals("Ingredients", ignoreCase = true) }
         .filter {
             it.name.contains(searchQuery.value, ignoreCase = true) ||
                     it.category.contains(searchQuery.value, ignoreCase = true)
@@ -61,13 +64,13 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
             var availableQty by remember { mutableStateOf(product.quantity) }
 
             LaunchedEffect(product.firebaseId, viewModel3.productList) {
-                availableQty = if (product.category.equals("beverage", ignoreCase = true)) {
+                availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
                     // Calculate based on recipe for beverages
                     val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
-                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (Beverage): Calculated = $calculated")
+                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (Beverages): Calculated = $calculated")
                     calculated
                 } else {
-                    // Use actual stock for ingredients and pastries
+                    // Use actual stock for pastries
                     android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
                     product.quantity
                 }
@@ -76,6 +79,14 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
             product.copy(quantity = availableQty)
         }
 
+    // ✅ ADD THIS NEW LaunchedEffect HERE (after the products variable)
+    LaunchedEffect(cartVisible, refreshTrigger) {
+        if (!cartVisible) {
+            // When cart closes, trigger a refresh
+            kotlinx.coroutines.delay(300)
+            viewModel3.getAllProducts()
+        }
+    }
     ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
         SidebarDrawer(navController)
     }) {
@@ -140,10 +151,16 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         )
 
                         LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
-                            val categories = viewModel3.productList.map { it.category }.distinct()
+                            // ✅ Filter out Ingredients from category chips
+                            val categories = viewModel3.productList
+                                .map { it.category }
+                                .distinct()
+                                .filter { !it.equals("Ingredients", ignoreCase = true) }
+
                             items(categories.size) { i ->
                                 val chipColor = when (categories[i]) {
                                     "Pastries" -> Color(0xFF8D6E63)
+                                    "Beverage" -> Color(0xFFBCAAA4)
                                     "Drinks" -> Color(0xFFBCAAA4)
                                     "Desserts" -> Color(0xFF8D6E63)
                                     else -> Color(0xFFA88164)
@@ -290,9 +307,14 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
                         OutlinedTextField(
                             value = cashReceived,
-                            onValueChange = { cashReceived = it },
+                            onValueChange = {
+                                // ✅ Only allow numeric input
+                                if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                    cashReceived = it
+                                }
+                            },
                             label = { Text("Enter cash received") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                             colors = TextFieldDefaults.colors(
@@ -307,7 +329,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
                         Button(
                             onClick = {
-                                val cashAmount = cashReceived.toIntOrNull() ?: 0
+                                val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
                                 val change = cashAmount - totalPrice
 
                                 if (change >= 0) {
@@ -335,9 +357,9 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
         if (showReceiptDialog) {
             AlertDialog(
                 onDismissRequest = { showReceiptDialog = false },
-                title = { Text("Receipt", fontWeight = FontWeight.Bold) },
+                title = { Text("Order Summary", fontWeight = FontWeight.Bold) },
                 text = {
-                    val cashAmount = cashReceived.toIntOrNull() ?: 0
+                    val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
                     val change = cashAmount - totalPrice
 
                     Column {
@@ -348,9 +370,9 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Total: ₱$totalPrice", fontWeight = FontWeight.Bold)
-                        Text("Cash: ₱$cashAmount")
+                        Text("Cash: ₱${String.format("%.2f", cashAmount)}")
                         Text(
-                            "Change: ₱${if (change >= 0) change else 0}",
+                            "Change: ₱${String.format("%.2f", if (change >= 0) change else 0.0)}",
                             fontWeight = FontWeight.Bold,
                             color = if (change >= 0) Color.Black else Color.Red
                         )
@@ -362,17 +384,17 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                 ,
                 confirmButton = {
                     TextButton(onClick = {
-                        val cashAmount = cashReceived.toIntOrNull() ?: 0
+                        val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
                         val change = cashAmount - totalPrice
 
                         if (change < 0) return@TextButton
 
                         val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
-                        // ✅ Process orders and deduct ingredients
                         cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
                             val product = items.first()
                             val quantity = items.size
+                            val saleTotal = product.price * quantity
 
                             // Save sale
                             val sale = Entity_SalesReport(
@@ -384,15 +406,16 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             )
                             viewModel3.insertSalesReport(sale)
 
-                            // ✅ Only deduct ingredients for beverages
-                            if (product.category.equals("beverage", ignoreCase = true)) {
-                                android.util.Log.d("OrderProcess", "🔻 Processing beverage: ${product.name}")
+                            // ✅ Log the sale transaction
+                            AuditHelper.logSale(product.name, quantity, saleTotal)
+
+                            // Deduct stock
+                            if (product.category.equals("Beverages", ignoreCase = true)) {
+                                android.util.Log.d("OrderProcess", "🔻 Processing Beverages: ${product.name}")
                                 recipeViewModel.processOrder(product.firebaseId, quantity) { ingredientSale ->
-                                    // ✅ Save each ingredient deduction to sales
                                     viewModel3.insertSalesReport(ingredientSale)
                                 }
                             } else {
-                                // ✅ For pastries/ingredients, just deduct the product itself from inventory
                                 android.util.Log.d("OrderProcess", "📦 Deducting ${product.category}: ${product.name}")
                                 viewModel3.deductProductStock(product.firebaseId, quantity)
                             }
@@ -402,8 +425,10 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         cashReceived = ""
                         showReceiptDialog = false
                         cartVisible = false
+                        viewModel3.getAllProducts()
 
-                        // ✅ Refresh product list to show updated quantities
+                        // ✅ ADD THESE TWO LINES HERE
+                        refreshTrigger++  // Trigger refresh
                         viewModel3.getAllProducts()
                     }) {
                         Text("Done")
@@ -414,4 +439,3 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
         }
     }
 }
-

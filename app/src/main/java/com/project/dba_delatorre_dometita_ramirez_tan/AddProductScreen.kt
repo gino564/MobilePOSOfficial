@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -51,6 +54,10 @@ fun AddProductScreen(
     var quantityError by remember { mutableStateOf(false) }
     var imageError by remember { mutableStateOf(false) }
     var showDialog by remember { mutableStateOf(false) }
+
+    // Dropdown state
+    var expandedCategory by remember { mutableStateOf(false) }
+    val categories = listOf("Ingredients", "Beverages", "Pastries")
 
     val context = LocalContext.current
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -162,39 +169,80 @@ fun AddProductScreen(
                             )
                             if (nameError) Text("Required", color = Color.Red, fontSize = 12.sp)
 
-                            OutlinedTextField(
-                                value = productCategory,
-                                onValueChange = {
-                                    productCategory = it; categoryError = false
-                                },
-                                label = { Text("Category") },
-                                isError = categoryError,
-                                modifier = textFieldModifier,
-                                shape = RoundedCornerShape(20.dp)
-                            )
+                            // CATEGORY DROPDOWN
+                            ExposedDropdownMenuBox(
+                                expanded = expandedCategory,
+                                onExpandedChange = { expandedCategory = !expandedCategory },
+                                modifier = textFieldModifier
+                            ) {
+                                OutlinedTextField(
+                                    value = productCategory,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Category") },
+                                    trailingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Dropdown"
+                                        )
+                                    },
+                                    isError = categoryError,
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = expandedCategory,
+                                    onDismissRequest = { expandedCategory = false }
+                                ) {
+                                    categories.forEach { category ->
+                                        DropdownMenuItem(
+                                            text = { Text(category) },
+                                            onClick = {
+                                                productCategory = category
+                                                expandedCategory = false
+                                                categoryError = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                             if (categoryError) Text("Required", color = Color.Red, fontSize = 12.sp)
 
+                            // PRICE FIELD - Numeric only with decimal
                             OutlinedTextField(
                                 value = productPrice,
                                 onValueChange = {
-                                    productPrice = it; priceError = false
+                                    // Only allow digits and single decimal point
+                                    if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                        productPrice = it
+                                        priceError = false
+                                    }
                                 },
                                 label = { Text("Price") },
                                 isError = priceError,
                                 modifier = textFieldModifier,
-                                shape = RoundedCornerShape(20.dp)
+                                shape = RoundedCornerShape(20.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                             )
                             if (priceError) Text("Required", color = Color.Red, fontSize = 12.sp)
 
+                            // QUANTITY FIELD - Integers only
                             OutlinedTextField(
                                 value = productQuantity,
                                 onValueChange = {
-                                    productQuantity = it; quantityError = false
+                                    // Only allow digits (no decimal for quantity)
+                                    if (it.isEmpty() || it.matches(Regex("^\\d+$"))) {
+                                        productQuantity = it
+                                        quantityError = false
+                                    }
                                 },
                                 label = { Text("Quantity") },
                                 isError = quantityError,
                                 modifier = textFieldModifier,
-                                shape = RoundedCornerShape(20.dp)
+                                shape = RoundedCornerShape(20.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                             )
                             if (quantityError) Text("Required", color = Color.Red, fontSize = 12.sp)
 
@@ -223,6 +271,9 @@ fun AddProductScreen(
                                                 imageUri = selectedImageUri.toString()
                                             )
                                         )
+                                        // ✅ ADD THIS - Log product addition to audit trail
+                                        AuditHelper.logProductAdd(productName.trim())
+                                        android.util.Log.d("AddProductScreen", "✅ Audit trail logged for product add")
                                         showDialog = true
                                     }
                                 },

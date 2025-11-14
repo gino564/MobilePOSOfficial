@@ -30,6 +30,7 @@ fun Login(navController: NavController) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
     val context = LocalContext.current
@@ -92,7 +93,8 @@ fun Login(navController: NavController) {
                             shape = RoundedCornerShape(20.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp)
+                                .padding(vertical = 4.dp),
+                            enabled = !isLoading
                         )
 
                         OutlinedTextField(
@@ -104,21 +106,39 @@ fun Login(navController: NavController) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
+                            enabled = !isLoading,
                             trailingIcon = {
                                 val icon = if (passwordVisible)
                                     painterResource(id = R.drawable.ic_visibility_off)
                                 else
                                     painterResource(id = R.drawable.ic_visibility)
 
-                                val description = if (passwordVisible) "Hide password" else "Show password"
+                                val description =
+                                    if (passwordVisible) "Hide password" else "Show password"
 
                                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                     Icon(painter = icon, contentDescription = description)
                                 }
                             }
                         )
-
-                        Spacer(modifier = Modifier.height(10.dp))
+                        if (isLoading) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Color(0xFF6B3E2E)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Authenticating...",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
                     }
 
                     // Button at bottom
@@ -127,7 +147,7 @@ fun Login(navController: NavController) {
                     ) {
                         Button(
                             onClick = {
-                                coroutineScope.launch(Dispatchers.IO) {
+                                coroutineScope.launch {
                                     when {
                                         username.isBlank() || password.isBlank() -> {
                                             withContext(Dispatchers.Main) {
@@ -140,15 +160,64 @@ fun Login(navController: NavController) {
                                         }
 
                                         else -> {
-                                            val user = userDao.DaoGetUserByCredentials(username, password)
-                                            withContext(Dispatchers.Main) {
-                                                if (user != null) {
-                                                    navController.navigate(Routes.R_DashboardScreen.routes)
-                                                } else {
+                                            isLoading = true
+
+                                            try {
+                                                // ✅ Initialize AuditHelper (safe to call multiple times)
+                                                AuditHelper.initialize(context)
+
+                                                // ✅ Use UserRepository for Firebase Auth login
+                                                val userRepository = UserRepository(userDao)
+                                                val user = userRepository.loginUser(username, password)
+
+
+                                                withContext(Dispatchers.Main) {
+                                                    isLoading = false
+
+                                                    if (user != null) {
+                                                        // ✅ Save user session
+                                                        UserSession.currentUser = user
+
+                                                        // ✅ Get username and full name
+                                                        val username = user.Entity_username
+                                                        val fullName = "${user.Entity_fname} ${user.Entity_lname}" // ✅ Correct field names
+
+                                                        // ✅ Log successful login with BOTH parameters
+                                                        AuditHelper.logLogin(username, fullName)
+                                                        android.util.Log.d("Login", "✅ Audit trail logged for login: $username ($fullName)")
+
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Welcome ${user.Entity_fname}!",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+
+                                                        navController.navigate(Routes.R_DashboardScreen.routes) {
+                                                            popUpTo("login") { inclusive = true }
+                                                        }
+                                                    } else {
+                                                        // ✅ Log failed login attempt
+                                                        AuditHelper.logFailedLogin(username)
+                                                        android.util.Log.d("Login", "✅ Audit trail logged for failed login")
+
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Invalid username or password.",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                withContext(Dispatchers.Main) {
+                                                    isLoading = false
+
+                                                    // ✅ Log failed login attempt
+                                                    AuditHelper.logFailedLogin(username)
+
                                                     Toast.makeText(
                                                         context,
-                                                        "Invalid username or password.",
-                                                        Toast.LENGTH_SHORT
+                                                        "Login failed: ${e.message}",
+                                                        Toast.LENGTH_LONG
                                                     ).show()
                                                 }
                                             }
@@ -163,24 +232,17 @@ fun Login(navController: NavController) {
                                 containerColor = Color(0xFF6B3E2E),
                                 contentColor = Color.White
                             ),
-                            shape = RoundedCornerShape(20.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            enabled = !isLoading
                         ) {
-                            Text("Login", fontSize = 18.sp)
-                        }
-
-                        TextButton(
-                            onClick = {
-                                navController.navigate(Routes.Screen1.routes)
-                            },
-                            modifier = Modifier
-                                .padding(top = 4.dp)
-                                .align(Alignment.CenterHorizontally)
-                        ) {
-                            Text(
-                                text = "Don't have an account? Register",
-                                color = Color.Gray,
-                                fontSize = 14.sp
-                            )
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.White
+                                )
+                            } else {
+                                Text("Login", fontSize = 18.sp)
+                            }
                         }
                     }
                 }
@@ -188,5 +250,3 @@ fun Login(navController: NavController) {
         }
     }
 }
-
-

@@ -376,8 +376,7 @@ class ProductRepository(
                     "category" to sale.category,
                     "quantity" to sale.quantity,
                     "price" to sale.price,
-                    "orderDate" to sale.orderDate,
-                    "timestamp" to System.currentTimeMillis()
+                    "orderDate" to sale.orderDate
                 )
 
                 // Step 2: Add to Firestore sales collection
@@ -395,6 +394,48 @@ class ProductRepository(
                 android.util.Log.e("ProductRepo", "❌ Failed to save sale!")
                 android.util.Log.e("ProductRepo", "Error: ${e.message}", e)
                 android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+        }
+    }
+    // ============ SYNC SALES FROM FIREBASE ============
+
+    suspend fun syncSalesFromFirebase(): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.d("ProductRepo", "📡 Syncing sales from Firestore...")
+
+                val salesCollection = firestore.collection("sales")
+                val snapshot = salesCollection.get().await()
+                android.util.Log.d("ProductRepo", "✅ Firestore returned ${snapshot.documents.size} sales")
+
+                val salesList = snapshot.documents.mapNotNull { doc ->
+                    try {
+                        Entity_SalesReport(
+                            orderId = 0,  // Room will auto-generate
+
+                            productName = doc.getString("productName") ?: "",
+                            category = doc.getString("category") ?: "",
+                            quantity = doc.getLong("quantity")?.toInt() ?: 0,
+                            price = doc.getDouble("price") ?: 0.0,
+                            orderDate = doc.getString("orderDate") ?: ""
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("ProductRepo", "❌ Error parsing sale ${doc.id}: ${e.message}")
+                        null
+                    }
+                }
+
+                android.util.Log.d("ProductRepo", "✅ Parsed ${salesList.size} sales from Firestore")
+
+                // Note: We don't clear sales here, just sync new ones
+                // If you want to fully sync, you can clear first: daoSalesReport.clearSalesReport()
+
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                android.util.Log.e("ProductRepo", "❌ Sales sync failed: ${e.message}", e)
+                Result.failure(e)
             }
         }
     }

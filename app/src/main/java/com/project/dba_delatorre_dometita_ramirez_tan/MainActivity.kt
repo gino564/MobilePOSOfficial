@@ -15,13 +15,20 @@
     import androidx.navigation.compose.composable
     import androidx.navigation.compose.rememberNavController
     import androidx.lifecycle.viewmodel.compose.viewModel
+    import com.google.firebase.firestore.FirebaseFirestore
     import com.jakewharton.threetenabp.AndroidThreeTen
+    import kotlinx.coroutines.CoroutineScope
+    import kotlinx.coroutines.Dispatchers
+    import kotlinx.coroutines.launch
+    import kotlinx.coroutines.tasks.await
 
     class MainActivity : ComponentActivity() {
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
             AndroidThreeTen.init(this)
             CloudinaryHelper.initialize(this)
+            AuditHelper.initialize(this)
+            android.util.Log.d("MainActivity", "✅ AuditHelper initialized")
             enableEdgeToEdge()
             val db = Database_Users.getDatabase(applicationContext)
             val userdao = db.dao_users()
@@ -37,31 +44,22 @@
 
 
             setContent {
-                val viewModel: frm_RegViewModel =  viewModel()
+
                 val navController = rememberNavController()
                 val recipeViewModel: RecipeViewModel = viewModel(  // ✅ ADD THIS
                     factory = RecipeViewModelFactory(recipeRepository)
                 )
                 NavHost(navController = navController, startDestination = Routes.R_Logo.routes) {
-                    composable(Routes.Screen1.routes){
-                        Screen1(navController = navController , viewModel = viewModel, viewModel2 = userViewModel)
-                    }
-
-                    composable(Routes.UserList.routes){
-                        ViewListScreen(viewModel2 = userViewModel, navController = navController)
-                    }
-                    composable(Routes.R_Login.routes){
-                        Login(navController = navController)
-                    }
                     composable(Routes.R_DashboardScreen.routes){
                         dashboard(navController = navController, viewModel = salesReportViewModel)
                     }
-                    composable(Routes.R_InventoryList.routes){
-                        InventoryListScreen(navController = navController, viewModel3 = productViewModel)
+
+                    composable(Routes.R_Login.routes){
+                        Login(navController = navController)
                     }
 
-                    composable(Routes.R_SalesReport.routes){
-                        SalesReportScreen(navController = navController, salesViewModel = salesReportViewModel)
+                    composable(Routes.R_InventoryList.routes){
+                        InventoryListScreen(navController = navController, viewModel3 = productViewModel)
                     }
 
                     composable(Routes.R_AddProduct.routes){
@@ -95,9 +93,6 @@
                     }
                     composable(Routes.OrderProcess.routes) {
                         OrderProcessScreen(navController, productViewModel, recipeViewModel)  // ✅ Pass recipe VM
-                    }
-                    composable(Routes.R_EditAccountScreen.routes){
-                        EditAccountScreen(navController = navController , viewModel = viewModel, viewModel2 = userViewModel)
                     }
                 }
             }

@@ -21,7 +21,11 @@ interface Dao_Users {
 
     @Query("SELECT * FROM tbl_Users ORDER BY Entity_id ASC")
     fun DaoLoadUsers(): Flow<List<Entity_Users>>
+    // ✅ Get user by username only (no password check)
+    @Query("SELECT * FROM tbl_Users WHERE Entity_username = :username LIMIT 1")
+    suspend fun getUserByUsername(username: String): Entity_Users?
 
-    @Query("SELECT * FROM tbl_Users WHERE Entity_username = :username AND Entity_password = :password LIMIT 1")
-    suspend fun DaoGetUserByCredentials(username: String, password: String): Entity_Users?
+    // ✅ Get active user by username
+    @Query("SELECT * FROM tbl_Users WHERE Entity_username = :username AND status = 'active' LIMIT 1")
+    suspend fun getActiveUserByUsername(username: String): Entity_Users?
 }

@@ -32,8 +32,13 @@ class ProductViewModel(private val repository: ProductRepository) : ViewModel() 
             val storageTest = repository.testStorageConnection()
             android.util.Log.d("ProductViewModel", "📦 Storage Test: $storageTest")
 
-            // Then load products
+            // Sync sales from Firebase
+            repository.syncSalesFromFirebase()
+
+            // ✅ Then load products and WAIT for completion
             getAllProducts()
+
+            android.util.Log.d("ProductViewModel", "✅ Initial sync complete")
         }
     }
 
