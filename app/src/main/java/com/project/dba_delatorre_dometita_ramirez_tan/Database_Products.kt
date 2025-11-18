@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         Entity_RecipeIngredient::class,
         Entity_AuditLog::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class Database_Products : RoomDatabase() {

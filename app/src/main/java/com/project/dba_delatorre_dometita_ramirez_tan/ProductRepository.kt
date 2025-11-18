@@ -133,19 +133,51 @@ class ProductRepository(
                 android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
                 android.util.Log.d("ProductRepo", "📡 Fetching products from Firestore...")
 
-                // Fetch from Firestore
                 val snapshot = productsCollection.get().await()
                 android.util.Log.d("ProductRepo", "✅ Firestore returned ${snapshot.documents.size} documents")
 
+                android.util.Log.d("ProductRepo", "📋 Document IDs in Firestore:")
+                snapshot.documents.forEachIndexed { index, doc ->
+                    android.util.Log.d("ProductRepo", "   ${index + 1}. ${doc.id}")
+                }
+
                 val firebaseProducts = snapshot.documents.mapNotNull { doc ->
                     try {
-                        val name = doc.getString("name") ?: ""
-                        val category = doc.getString("category") ?: ""
+                        // ✅ FIX 1: Handle all possible field variations
+                        val name = doc.getString("name") ?: doc.getString("productName") ?: ""
+
+                        // ✅ FIX 2: Normalize category names
+                        val rawCategory = doc.getString("category") ?: ""
+                        val category = when (rawCategory.lowercase()) {
+                            "hot drinks", "cold drinks", "drink", "drinks" -> "Beverages"
+                            "snacks", "pastry" -> "Pastries"
+                            "ingredient" -> "Ingredients"
+                            else -> rawCategory.replaceFirstChar { it.uppercase() }
+                        }
+
                         val price = doc.getDouble("price") ?: 0.0
+
+                        // ✅ FIX 3: Handle quantity (even if it's 0)
                         val quantity = doc.getLong("quantity")?.toInt() ?: 0
-                        val imageUri = doc.getString("imageUri") ?: ""
+
+                        // ✅ FIX 4: Handle NaN and empty imageUri - THE KEY FIX!
+                        val imageUri = try {
+                            val rawImageUri = doc.getString("imageUri") ?: ""
+                            when {
+                                rawImageUri.isEmpty() -> ""
+                                rawImageUri.equals("NaN", ignoreCase = true) -> ""
+                                rawImageUri.equals("nan", ignoreCase = true) -> ""
+                                else -> rawImageUri
+                            }
+                        } catch (e: Exception) {
+                            // ✅ If getString fails (because it's actually NaN type, not string), return empty
+                            android.util.Log.w("ProductRepo", "⚠️ imageUri is not a string for ${doc.id}, using empty string")
+                            ""
+                        }
 
                         android.util.Log.d("ProductRepo", "  📦 ${doc.id}: $name")
+                        android.util.Log.d("ProductRepo", "     - category: $rawCategory → $category")
+                        android.util.Log.d("ProductRepo", "     - quantity: $quantity")
                         android.util.Log.d("ProductRepo", "     - imageUri: $imageUri")
 
                         Entity_Products(
@@ -159,15 +191,21 @@ class ProductRepository(
                         )
                     } catch (e: Exception) {
                         android.util.Log.e("ProductRepo", "❌ Error parsing document ${doc.id}: ${e.message}")
+                        android.util.Log.e("ProductRepo", "   Stack trace:", e)
                         null
                     }
                 }
 
                 android.util.Log.d("ProductRepo", "✅ Parsed ${firebaseProducts.size} products from Firestore")
 
-                // ✅ Save to Room using REPLACE strategy (no need to delete!)
+                val categoryBreakdown = firebaseProducts.groupingBy { it.category }.eachCount()
+                android.util.Log.d("ProductRepo", "📊 Category Breakdown:")
+                categoryBreakdown.forEach { (category, count) ->
+                    android.util.Log.d("ProductRepo", "   $category: $count products")
+                }
+
                 if (firebaseProducts.isNotEmpty()) {
-                    daoProducts.insertProducts(firebaseProducts)  // OnConflictStrategy.REPLACE
+                    daoProducts.insertProducts(firebaseProducts)
                     android.util.Log.d("ProductRepo", "✅ Synced to Room database")
                 }
 
@@ -176,7 +214,6 @@ class ProductRepository(
             } catch (e: Exception) {
                 android.util.Log.e("ProductRepo", "❌ getAll() failed: ${e.message}", e)
 
-                // Fallback to Room if Firestore fails
                 android.util.Log.d("ProductRepo", "⚠️ Falling back to Room database...")
                 val roomProducts = daoProducts.getAllProducts()
                 android.util.Log.d("ProductRepo", "✅ Room returned ${roomProducts.size} products")
@@ -365,6 +402,7 @@ class ProductRepository(
                 android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
                 android.util.Log.d("ProductRepo", "💰 Saving sale to Firebase...")
                 android.util.Log.d("ProductRepo", "Product: ${sale.productName}")
+                android.util.Log.d("ProductRepo", "Product Firebase ID: ${sale.productFirebaseId}")
                 android.util.Log.d("ProductRepo", "Category: ${sale.category}")
                 android.util.Log.d("ProductRepo", "Quantity: ${sale.quantity}")
                 android.util.Log.d("ProductRepo", "Price: ₱${sale.price}")
@@ -376,7 +414,8 @@ class ProductRepository(
                     "category" to sale.category,
                     "quantity" to sale.quantity,
                     "price" to sale.price,
-                    "orderDate" to sale.orderDate
+                    "orderDate" to sale.orderDate,
+                    "productFirebaseId" to sale.productFirebaseId
                 )
 
                 // Step 2: Add to Firestore sales collection
@@ -418,7 +457,8 @@ class ProductRepository(
                             category = doc.getString("category") ?: "",
                             quantity = doc.getLong("quantity")?.toInt() ?: 0,
                             price = doc.getDouble("price") ?: 0.0,
-                            orderDate = doc.getString("orderDate") ?: ""
+                            orderDate = doc.getString("orderDate") ?: "",
+                            productFirebaseId = doc.getString("productFirebaseId") ?: ""
                         )
                     } catch (e: Exception) {
                         android.util.Log.e("ProductRepo", "❌ Error parsing sale ${doc.id}: ${e.message}")
@@ -456,6 +496,61 @@ class ProductRepository(
         } catch (e: Exception) {
             android.util.Log.e("ProductRepo", "❌ Cloudinary check failed: ${e.message}", e)
             "❌ Cloudinary error: ${e.message}"
+        }
+    }
+    // ============ SYNC ALL SALES FROM FIREBASE ============
+    suspend fun syncAllSalesFromFirebase(): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.d("ProductRepo", "📡 Syncing ALL sales from Firestore...")
+
+                val salesCollection = firestore.collection("sales")
+                val snapshot = salesCollection.get().await()
+                android.util.Log.d("ProductRepo", "✅ Firestore returned ${snapshot.documents.size} sales")
+
+                if (snapshot.documents.isEmpty()) {
+                    android.util.Log.d("ProductRepo", "⚠️ No sales found in Firebase")
+                    android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                    return@withContext Result.success(Unit)
+                }
+
+                val salesList = snapshot.documents.mapNotNull { doc ->
+                    try {
+                        Entity_SalesReport(
+                            orderId = 0,  // Room will auto-generate
+                            productName = doc.getString("productName") ?: "",
+                            category = doc.getString("category") ?: "",
+                            quantity = doc.getLong("quantity")?.toInt() ?: 0,
+                            price = doc.getDouble("price") ?: 0.0,
+                            orderDate = doc.getString("orderDate") ?: "",
+                            productFirebaseId = doc.getString("productFirebaseId") ?: ""
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("ProductRepo", "❌ Error parsing sale ${doc.id}: ${e.message}")
+                        null
+                    }
+                }
+
+                android.util.Log.d("ProductRepo", "✅ Parsed ${salesList.size} sales from Firestore")
+
+                // Clear old sales and insert new ones
+                daoSalesReport.clearSalesReport()
+                android.util.Log.d("ProductRepo", "🗑️ Cleared old sales from Room")
+
+                salesList.forEach { sale ->
+                    daoSalesReport.insertSale(sale)
+                }
+                android.util.Log.d("ProductRepo", "✅ Synced ${salesList.size} sales to Room")
+
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.e("ProductRepo", "❌ Sales sync failed: ${e.message}", e)
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                Result.failure(e)
+            }
         }
     }
 }

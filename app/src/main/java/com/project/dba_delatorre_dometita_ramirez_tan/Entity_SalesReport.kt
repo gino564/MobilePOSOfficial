@@ -10,7 +10,8 @@ data class Entity_SalesReport(
     val category: String = "",
     val quantity: Int,
     val price: Double,
-    val orderDate: String // You can store this as ISO-8601 string like "2025-07-09"
+    val orderDate: String,
+    val productFirebaseId: String = ""
 )
 data class TopSalesItem(
     val productName: String,

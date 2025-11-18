@@ -170,7 +170,6 @@ fun Login(navController: NavController) {
                                                 val userRepository = UserRepository(userDao)
                                                 val user = userRepository.loginUser(username, password)
 
-
                                                 withContext(Dispatchers.Main) {
                                                     isLoading = false
 
@@ -179,26 +178,33 @@ fun Login(navController: NavController) {
                                                         UserSession.currentUser = user
 
                                                         // ✅ Get username and full name
-                                                        val username = user.Entity_username
-                                                        val fullName = "${user.Entity_fname} ${user.Entity_lname}" // ✅ Correct field names
+                                                        val loggedUsername = user.Entity_username
+                                                        val fullName = "${user.Entity_fname} ${user.Entity_lname}"
+                                                        val userRole = user.role
 
                                                         // ✅ Log successful login with BOTH parameters
-                                                        AuditHelper.logLogin(username, fullName)
-                                                        android.util.Log.d("Login", "✅ Audit trail logged for login: $username ($fullName)")
+                                                        AuditHelper.logLogin(loggedUsername, fullName)
+                                                        android.util.Log.d("Login", "✅ Audit trail logged for login: $loggedUsername ($fullName)")
+                                                        android.util.Log.d("Login", "👤 User role: $userRole")
+
+                                                        // ✅ Get role-based default route
+                                                        val defaultRoute = RoleManager.getDefaultRoute()
+                                                        android.util.Log.d("Login", "🎯 Navigating to: $defaultRoute")
 
                                                         Toast.makeText(
                                                             context,
-                                                            "Welcome ${user.Entity_fname}!",
+                                                            "Welcome ${user.Entity_fname}! (${user.role})",
                                                             Toast.LENGTH_SHORT
                                                         ).show()
 
-                                                        navController.navigate(Routes.R_DashboardScreen.routes) {
-                                                            popUpTo("login") { inclusive = true }
+                                                        // ✅ Navigate to role-appropriate screen
+                                                        navController.navigate(defaultRoute) {
+                                                            popUpTo(Routes.R_Login.routes) { inclusive = true }
                                                         }
                                                     } else {
                                                         // ✅ Log failed login attempt
                                                         AuditHelper.logFailedLogin(username)
-                                                        android.util.Log.d("Login", "✅ Audit trail logged for failed login")
+                                                        android.util.Log.d("Login", "❌ Failed login attempt for: $username")
 
                                                         Toast.makeText(
                                                             context,
@@ -213,6 +219,7 @@ fun Login(navController: NavController) {
 
                                                     // ✅ Log failed login attempt
                                                     AuditHelper.logFailedLogin(username)
+                                                    android.util.Log.e("Login", "❌ Login error: ${e.message}", e)
 
                                                     Toast.makeText(
                                                         context,

@@ -33,9 +33,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 
-
 @OptIn(ExperimentalMaterial3Api::class)
-
 @Composable
 fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewModel, recipeViewModel: RecipeViewModel) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -48,29 +46,24 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     var cashReceived by remember { mutableStateOf("") }
     var refreshTrigger by remember { mutableStateOf(0) }
 
-
     val totalPrice = cartItems.sumOf { it.price.toInt() }
     val gradient = Brush.verticalGradient(listOf(Color(0xFFF3D3BD), Color(0xFF837060)))
 
     val products = viewModel3.productList
-        // ✅ Filter out Ingredients from being displayed
         .filter { !it.category.equals("Ingredients", ignoreCase = true) }
         .filter {
             it.name.contains(searchQuery.value, ignoreCase = true) ||
                     it.category.contains(searchQuery.value, ignoreCase = true)
         }
         .map { product ->
-            // ✅ Only calculate for beverages, show actual quantity for everything else
             var availableQty by remember { mutableStateOf(product.quantity) }
 
-            LaunchedEffect(product.firebaseId, viewModel3.productList) {
+            LaunchedEffect(product.firebaseId, viewModel3.productList, refreshTrigger) { // ✅ Added refreshTrigger
                 availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
-                    // Calculate based on recipe for beverages
                     val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
                     android.util.Log.d("OrderProcess", "🧮 ${product.name} (Beverages): Calculated = $calculated")
                     calculated
                 } else {
-                    // Use actual stock for pastries
                     android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
                     product.quantity
                 }
@@ -78,15 +71,19 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
             product.copy(quantity = availableQty)
         }
+        // ✅ UPDATED: First sort by availability (available first), then alphabetically by name
+        .sortedWith(
+            compareByDescending<Entity_Products> { it.quantity > 0 }  // Available first
+                .thenBy { it.name }                                     // Then A-Z within each group
+        )
 
-    // ✅ ADD THIS NEW LaunchedEffect HERE (after the products variable)
     LaunchedEffect(cartVisible, refreshTrigger) {
         if (!cartVisible) {
-            // When cart closes, trigger a refresh
             kotlinx.coroutines.delay(300)
             viewModel3.getAllProducts()
         }
     }
+
     ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
         SidebarDrawer(navController)
     }) {
@@ -151,28 +148,42 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         )
 
                         LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
-                            // ✅ Filter out Ingredients from category chips
                             val categories = viewModel3.productList
                                 .map { it.category }
                                 .distinct()
                                 .filter { !it.equals("Ingredients", ignoreCase = true) }
 
-                            items(categories.size) { i ->
-                                val chipColor = when (categories[i]) {
-                                    "Pastries" -> Color(0xFF8D6E63)
-                                    "Beverage" -> Color(0xFFBCAAA4)
-                                    "Drinks" -> Color(0xFFBCAAA4)
-                                    "Desserts" -> Color(0xFF8D6E63)
+                            val allCategories = listOf("All") + categories
+
+                            items(allCategories.size) { i ->
+                                val category = allCategories[i]
+
+                                val chipColor = when (category) {
+                                    "All" -> Color(0xFF6F4E37)
+                                    "Pastries" -> Color(0xFF6F4E37)
+                                    "Beverages" -> Color(0xFF6F4E37)
                                     else -> Color(0xFFA88164)
                                 }
 
-                                AssistChip(
-                                    onClick = { searchQuery.value = categories[i] },
-                                    label = { Text(categories[i], color = Color.White) },
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    colors = AssistChipDefaults.assistChipColors(containerColor = chipColor)
-                                )
+                                val isSelected = if (category == "All") {
+                                    searchQuery.value.isEmpty()
+                                } else {
+                                    searchQuery.value == category
+                                }
 
+                                AssistChip(
+                                    onClick = {
+                                        searchQuery.value = if (category == "All") "" else category
+                                    },
+                                    label = { Text(category, color = Color.White) },
+                                    modifier = Modifier.padding(end = 8.dp),
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = if (isSelected) chipColor.copy(alpha = 1f) else chipColor.copy(alpha = 0.6f)
+                                    ),
+                                    border = if (isSelected) {
+                                        androidx.compose.foundation.BorderStroke(2.dp, Color.White)
+                                    } else null
+                                )
                             }
                         }
 
@@ -182,12 +193,18 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 rowItems.forEach { product ->
+                                    // ✅ Check if product is out of stock
+                                    val isOutOfStock = product.quantity <= 0
+
                                     Card(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(200.dp),
                                         shape = RoundedCornerShape(12.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                                        colors = CardDefaults.cardColors(
+                                            // ✅ Gray out if out of stock
+                                            containerColor = if (isOutOfStock) Color(0xFFE0E0E0) else Color.White
+                                        )
                                     ) {
                                         Column(
                                             modifier = Modifier
@@ -195,33 +212,66 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                                 .padding(8.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            if (product.imageUri.isNotEmpty()) {
-                                                Image(
-                                                    painter = rememberAsyncImagePainter(
-                                                        model = product.imageUri,  // ✅ Now loads from Firebase Storage URL
-                                                        error = painterResource(R.drawable.ic_launcher_foreground),
-                                                        placeholder = painterResource(R.drawable.ic_launcher_foreground)
-                                                    ),
-                                                    contentDescription = null,
-                                                    modifier = Modifier
-                                                        .height(90.dp)
-                                                        .fillMaxWidth(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .height(90.dp)
-                                                        .fillMaxWidth()
-                                                        .background(Color.LightGray, RoundedCornerShape(8.dp)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text("No Image", fontSize = 12.sp, color = Color.DarkGray)
+                                            // ✅ Add overlay for out of stock items
+                                            Box {
+                                                if (product.imageUri.isNotEmpty()) {
+                                                    Image(
+                                                        painter = rememberAsyncImagePainter(
+                                                            model = product.imageUri,
+                                                            error = painterResource(R.drawable.ic_launcher_foreground),
+                                                            placeholder = painterResource(R.drawable.ic_launcher_foreground)
+                                                        ),
+                                                        contentDescription = null,
+                                                        modifier = Modifier
+                                                            .height(90.dp)
+                                                            .fillMaxWidth(),
+                                                        contentScale = ContentScale.Crop,
+                                                        // ✅ Dim image if out of stock
+                                                        alpha = if (isOutOfStock) 0.4f else 1f
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .height(90.dp)
+                                                            .fillMaxWidth()
+                                                            .background(Color.LightGray, RoundedCornerShape(8.dp)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text("No Image", fontSize = 12.sp, color = Color.DarkGray)
+                                                    }
+                                                }
+
+                                                // ✅ Show "OUT OF STOCK" badge
+                                                if (isOutOfStock) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .matchParentSize()
+                                                            .background(Color.Black.copy(alpha = 0.5f)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            "OUT OF STOCK",
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 12.sp
+                                                        )
+                                                    }
                                                 }
                                             }
+
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Text("₱${product.price}", fontSize = 12.sp)
+                                            Text(
+                                                product.name,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                // ✅ Dim text if out of stock
+                                                color = if (isOutOfStock) Color.Gray else Color.Black
+                                            )
+                                            Text(
+                                                "₱${product.price}",
+                                                fontSize = 12.sp,
+                                                color = if (isOutOfStock) Color.Gray else Color.Black
+                                            )
                                             Text(
                                                 "Available: ${product.quantity}",
                                                 fontSize = 11.sp,
@@ -229,17 +279,28 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                                 color = if (product.quantity > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
                                             )
                                             Spacer(modifier = Modifier.height(8.dp))
+
+                                            // ✅ Disable button if out of stock
                                             Button(
                                                 onClick = {
-                                                    cartItems = cartItems + product
-                                                    scope.launch {
-                                                        snackbarHostState.showSnackbar("${product.name} added to cart")
+                                                    if (!isOutOfStock) {
+                                                        cartItems = cartItems + product
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar("${product.name} added to cart")
+                                                        }
                                                     }
                                                 },
                                                 modifier = Modifier.fillMaxWidth(0.9f),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA88164))
+                                                enabled = !isOutOfStock, // ✅ KEY CHANGE: Disable when out of stock
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (isOutOfStock) Color.Gray else Color(0xFFA88164),
+                                                    disabledContainerColor = Color.Gray
+                                                )
                                             ) {
-                                                Text("Add", color = Color.White)
+                                                Text(
+                                                    if (isOutOfStock) "Unavailable" else "Add",
+                                                    color = Color.White
+                                                )
                                             }
                                         }
                                     }
@@ -248,6 +309,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             Spacer(modifier = Modifier.height(12.dp))
                         }
                     } else {
+                        // ✅ Cart view (unchanged)
                         Text("Order Summary", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
 
                         cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
@@ -273,7 +335,6 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                         Text("₱${product.price} x $quantity = ₱${product.price.toInt() * quantity}")
                                     }
 
-                                    // Add (+) and (-) buttons to adjust quantity
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         IconButton(onClick = {
                                             cartItems = cartItems + product
@@ -291,10 +352,8 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             }
                         }
 
-
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // ✅ Added total display here
                         Text(
                             "Total: ₱$totalPrice",
                             fontSize = 18.sp,
@@ -308,7 +367,6 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         OutlinedTextField(
                             value = cashReceived,
                             onValueChange = {
-                                // ✅ Only allow numeric input
                                 if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
                                     cashReceived = it
                                 }
@@ -348,9 +406,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             Text("Complete", color = Color.White)
                         }
                     }
-
                 }
-
             }
         )
 
@@ -380,8 +436,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             Text("Not enough cash!", color = Color.Red)
                         }
                     }
-                }
-                ,
+                },
                 confirmButton = {
                     TextButton(onClick = {
                         val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
@@ -396,25 +451,21 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             val quantity = items.size
                             val saleTotal = product.price * quantity
 
-                            // Save sale
                             val sale = Entity_SalesReport(
                                 productName = product.name,
                                 category = product.category,
                                 quantity = quantity,
                                 price = product.price,
-                                orderDate = currentDate
+                                orderDate = currentDate,
+                                productFirebaseId = product.firebaseId
                             )
                             viewModel3.insertSalesReport(sale)
 
-                            // ✅ Log the sale transaction
                             AuditHelper.logSale(product.name, quantity, saleTotal)
 
-                            // Deduct stock
                             if (product.category.equals("Beverages", ignoreCase = true)) {
                                 android.util.Log.d("OrderProcess", "🔻 Processing Beverages: ${product.name}")
-                                recipeViewModel.processOrder(product.firebaseId, quantity) { ingredientSale ->
-                                    viewModel3.insertSalesReport(ingredientSale)
-                                }
+                                recipeViewModel.processOrder(product.firebaseId, quantity, saveToSales = {})
                             } else {
                                 android.util.Log.d("OrderProcess", "📦 Deducting ${product.category}: ${product.name}")
                                 viewModel3.deductProductStock(product.firebaseId, quantity)
@@ -425,16 +476,14 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         cashReceived = ""
                         showReceiptDialog = false
                         cartVisible = false
-                        viewModel3.getAllProducts()
 
-                        // ✅ ADD THESE TWO LINES HERE
-                        refreshTrigger++  // Trigger refresh
+                        // ✅ Refresh to update available quantities
+                        refreshTrigger++
                         viewModel3.getAllProducts()
                     }) {
                         Text("Done")
                     }
                 }
-
             )
         }
     }

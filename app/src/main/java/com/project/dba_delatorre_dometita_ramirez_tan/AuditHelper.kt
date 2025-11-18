@@ -38,17 +38,7 @@ object AuditHelper {
         )
     }
 
-    fun logInventoryUpdate(productName: String, oldQty: Int, newQty: Int) {
-        val currentUser = UserSession.currentUser
-        val username = currentUser?.Entity_username ?: "Unknown"
-        val fullName = UserSession.getUserFullName()
-        log(
-            AuditActions.INVENTORY_UPDATE,
-            "$fullName updated stock for $productName from $oldQty to $newQty units",
-            "Success",
-            username
-        )
-    }
+
 
     fun logProductAdd(productName: String) {
         val currentUser = UserSession.currentUser

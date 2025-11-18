@@ -38,30 +38,34 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 
-
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryListScreen(
     navController: NavController,
-    viewModel3: ProductViewModel
+    viewModel3: ProductViewModel,
+    recipeViewModel: RecipeViewModel  // ✅ ADD THIS PARAMETER
 ) {
     // ✅ Fetch products when screen opens
     LaunchedEffect(Unit) {
         android.util.Log.d("InventoryList", "🔄 Fetching products from Firebase...")
         viewModel3.getAllProducts()
+
+        android.util.Log.d("InventoryList", "📊 Products in UI:")
+        viewModel3.productList.forEach { product ->
+            android.util.Log.d("InventoryList", "  • ${product.firebaseId}: ${product.name} (Qty: ${product.quantity})")
+        }
     }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val products = viewModel3.productList
     val isLoading = viewModel3.isLoading
     val errorMessage = viewModel3.errorMessage
 
     var productToDelete by remember { mutableStateOf<Entity_Products?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf(TextFieldValue("")) }
-    val chipOptions = listOf("All", "Beverages", "Pastries", "Ingredients")
+    val chipOptions = listOf("All", "Beverages", "Pastries", "Ingredients", "Snacks")
     var selectedOption by remember { mutableStateOf("All") }
 
     val selectedChipColor = Color(0xFF6F4E37)
@@ -69,10 +73,37 @@ fun InventoryListScreen(
     val selectedTextColor = Color.White
     val unselectedTextColor = Color.Black
 
-    val filteredProducts = products.filter {
-        it.name.contains(searchText.text, ignoreCase = true) &&
-                (selectedOption == "All" || it.category.equals(selectedOption, ignoreCase = true))
-    }
+    // ✅ ADD THIS: Calculate available quantities for beverages
+    val productsWithAvailability = viewModel3.productList
+        .map { product ->
+            var availableQty by remember { mutableStateOf(product.quantity) }
+
+            LaunchedEffect(product.firebaseId, viewModel3.productList) {
+                availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
+                    // Calculate based on recipe for beverages
+                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    android.util.Log.d("InventoryList", "🧮 ${product.name} (Beverages): Calculated = $calculated")
+                    calculated
+                } else {
+                    // Use actual stock for pastries/ingredients
+                    android.util.Log.d("InventoryList", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
+                    product.quantity
+                }
+            }
+
+            product.copy(quantity = availableQty)
+        }
+
+    // ✅ UPDATED: Use productsWithAvailability instead of products
+    val filteredProducts = productsWithAvailability
+        .filter {
+            it.name.contains(searchText.text, ignoreCase = true) &&
+                    (selectedOption == "All" || it.category.equals(selectedOption, ignoreCase = true))
+        }
+        .sortedWith(
+            compareByDescending<Entity_Products> { it.quantity > 0 }  // Available first
+                .thenBy { it.name }                                     // Then A-Z within each group
+        )
 
     val gradient = Brush.verticalGradient(
         colors = listOf(Color(0xFFF3D3BD), Color(0xFF837060))
@@ -125,7 +156,6 @@ fun InventoryListScreen(
                 }
             },
             content = { paddingValues ->
-                // ✅ Show loading indicator
                 if (isLoading) {
                     Box(
                         modifier = Modifier
@@ -149,7 +179,6 @@ fun InventoryListScreen(
                             .padding(horizontal = 24.dp, vertical = 16.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
-                        // ✅ Show error message if fetch failed
                         errorMessage?.let { error ->
                             Card(
                                 modifier = Modifier
@@ -165,7 +194,6 @@ fun InventoryListScreen(
                             }
                         }
 
-                        // 🔍 Search
                         TextField(
                             value = searchText,
                             onValueChange = { searchText = it },
@@ -185,7 +213,6 @@ fun InventoryListScreen(
                             shape = RoundedCornerShape(16.dp)
                         )
 
-                        // 🏷️ Categories
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -212,10 +239,10 @@ fun InventoryListScreen(
                             }
                         }
 
-                        // 📦 Products
+                        // ✅ UPDATED: Use productsWithAvailability instead of products
                         if (filteredProducts.isEmpty()) {
                             Text(
-                                text = if (products.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
+                                text = if (productsWithAvailability.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
                                 fontSize = 18.sp,
                                 color = Color.White,
                                 modifier = Modifier.padding(8.dp)
@@ -237,11 +264,10 @@ fun InventoryListScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        // 🖼️ Image
                                         if (product.imageUri.isNotEmpty()) {
                                             Image(
                                                 painter = rememberAsyncImagePainter(
-                                                    model = product.imageUri,  // ✅ Now loads from Firebase Storage URL
+                                                    model = product.imageUri,
                                                     error = painterResource(R.drawable.ic_launcher_foreground),
                                                     placeholder = painterResource(R.drawable.ic_launcher_foreground)
                                                 ),
@@ -263,7 +289,6 @@ fun InventoryListScreen(
                                             }
                                         }
 
-                                        // 📄 Details
                                         Column(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -273,13 +298,30 @@ fun InventoryListScreen(
                                             Text(product.category, fontSize = 14.sp, color = Color(0xFF4E342E))
                                             Spacer(modifier = Modifier.height(6.dp))
                                             Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                                                Text("${product.quantity} pcs", fontSize = 14.sp)
+                                                // ✅ Show "Available" for beverages, "Stock" for others
+                                                Text(
+                                                    if (product.category.equals("Beverages", ignoreCase = true)) {
+                                                        "Available: ${product.quantity}"
+                                                    } else {
+                                                        "${product.quantity} pcs"
+                                                    },
+                                                    fontSize = 14.sp
+                                                )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text("₱${product.price}", fontSize = 14.sp)
                                             }
+                                            if (product.quantity == 0) {
+                                                Text(
+                                                    "OUT OF STOCK",
+                                                    fontSize = 10.sp,
+                                                    color = Color.White,
+                                                    modifier = Modifier
+                                                        .background(Color.Red, RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
                                         }
 
-                                        // 🛠️ Actions
                                         Column {
                                             IconButton(onClick = {
                                                 android.util.Log.d("InventoryList", "🖊️ Editing product: ${product.name}")
@@ -300,7 +342,6 @@ fun InventoryListScreen(
                             }
                         }
 
-                        // 🔔 Delete confirmation dialog
                         if (showDeleteDialog && productToDelete != null) {
                             AlertDialog(
                                 onDismissRequest = { showDeleteDialog = false },
@@ -309,7 +350,6 @@ fun InventoryListScreen(
                                 confirmButton = {
                                     Button(
                                         onClick = {
-                                            // ✅ ADD THIS - Log product deletion to audit trail
                                             AuditHelper.logProductDelete(productToDelete!!.name)
                                             android.util.Log.d("InventoryList", "✅ Audit trail logged for product delete")
                                             viewModel3.deleteProduct(productToDelete!!)

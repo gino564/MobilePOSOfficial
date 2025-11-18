@@ -334,6 +334,10 @@ fun SalesItem(name: String, price: String, color: Color) {
 fun SidebarDrawer(navController: NavController) {
     val scrollState = rememberScrollState()
     var showLogoutDialog by remember { mutableStateOf(false) }
+
+    // ✅ Get menu items based on user role
+    val menuItems = RoleManager.getMenuItemsForRole()
+
     Column(
         modifier = Modifier
             .fillMaxHeight()
@@ -341,12 +345,10 @@ fun SidebarDrawer(navController: NavController) {
             .background(Brush.verticalGradient(
                 colors = listOf(Color(0xFFB89E8C), Color(0xFF7B5E57))
             ))
-
             .padding(24.dp)
             .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally
-    )
-    {
+    ) {
         Box(
             modifier = Modifier
                 .size(100.dp)
@@ -364,18 +366,24 @@ fun SidebarDrawer(navController: NavController) {
             )
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
 
-
+        // ✅ Display user info and role
+        Text(
+            text = UserSession.getUserFullName(),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        Text(
+            text = RoleManager.getCurrentUserRole(),
+            fontSize = 14.sp,
+            color = Color(0xFFE0E0E0)
+        )
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        val menuItems = listOf(
-            "Overview" to Icons.Filled.Home,
-            "Order Process" to Icons.Filled.ShoppingCart,
-            "Inventory List" to Icons.Filled.Email,
-            "Log Out" to Icons.AutoMirrored.Filled.ExitToApp
-        )
-
+        // ✅ Display only authorized menu items
         menuItems.forEach { (title, icon) ->
             DrawerMenuItem(title, icon, navController) {
                 if (title == "Log Out") {
@@ -405,19 +413,10 @@ fun SidebarDrawer(navController: NavController) {
                 confirmButton = {
                     Button(
                         onClick = {
-                            // ✅ Get BOTH username and full name BEFORE clearing session
                             val username = UserSession.currentUser?.Entity_username ?: "Unknown"
                             val fullName = UserSession.getUserFullName()
 
-                            UserSession.logout()
-                            android.util.Log.d("Logout", "🔍 Username before logout: $username")
-                            android.util.Log.d("Logout", "🔍 Full name before logout: $fullName")
-
-                            // ✅ Log logout with BOTH parameters
                             AuditHelper.logLogout(username, fullName)
-                            android.util.Log.d("Logout", "✅ Audit trail logged for logout")
-
-                            // ✅ THEN clear session
                             UserSession.logout()
 
                             showLogoutDialog = false
