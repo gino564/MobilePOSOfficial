@@ -167,25 +167,6 @@
                         }
                     }
 
-                    composable(Routes.R_RecipeManagement.routes) {
-                        if (RoleManager.canAccessRoute(Routes.R_RecipeManagement.routes)) {
-                            RecipeManagementScreen(
-                                navController = navController,
-                                productViewModel = productViewModel,
-                                recipeViewModel = recipeViewModel
-                            )
-                        } else {
-                            LaunchedEffect(Unit) {
-                                navController.navigate(RoleManager.getDefaultRoute()) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Access Denied - Redirecting...", color = Color.Red)
-                            }
-                        }
-                    }
-
                     composable(Routes.R_Logo.routes){
                         WelcomeLogo(navController = navController)
                     }

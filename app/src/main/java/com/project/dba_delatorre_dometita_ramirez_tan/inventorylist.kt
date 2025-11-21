@@ -11,11 +11,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -66,6 +66,9 @@ fun InventoryListScreen(
 
     var productToDelete by remember { mutableStateOf<Entity_Products?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showSetupDialog by remember { mutableStateOf(false) }
+    var setupStatus by remember { mutableStateOf("") }
+    var isSettingUp by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf(TextFieldValue("")) }
     val chipOptions = listOf("All", "Beverages", "Pastries", "Ingredients", "Snacks")
     var selectedOption by remember { mutableStateOf("All") }
@@ -151,13 +154,13 @@ fun InventoryListScreen(
                             }
                         },
                         actions = {
-                            // Recipe Management Button
+                            // Setup/Tools Button (Admin only)
                             IconButton(onClick = {
-                                navController.navigate(Routes.R_RecipeManagement.routes)
+                                showSetupDialog = true
                             }) {
                                 Icon(
-                                    Icons.Default.Restaurant,
-                                    contentDescription = "Manage Recipes",
+                                    Icons.Default.Build,
+                                    contentDescription = "Setup Tools",
                                     tint = Color.White
                                 )
                             }
@@ -443,6 +446,95 @@ fun InventoryListScreen(
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF795548))
                                     ) {
                                         Text("Cancel", color = Color.White)
+                                    }
+                                }
+                            )
+                        }
+
+                        // Setup Tools Dialog
+                        if (showSetupDialog) {
+                            AlertDialog(
+                                onDismissRequest = { if (!isSettingUp) showSetupDialog = false },
+                                title = { Text("Firestore Setup Tools", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "⚠️ Run this ONCE to add recipes for pastries and ingredient costs!",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFD32F2F)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            "This will:",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text("• Add recipes for all pastries", fontSize = 13.sp)
+                                        Text("• Add ingredient costs per unit", fontSize = 13.sp)
+                                        Text("• Enable cost calculations", fontSize = 13.sp)
+
+                                        if (setupStatus.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Card(
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (setupStatus.contains("✅")) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                                )
+                                            ) {
+                                                Text(
+                                                    setupStatus,
+                                                    modifier = Modifier.padding(12.dp),
+                                                    fontSize = 13.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                isSettingUp = true
+                                                setupStatus = "🔄 Running setup..."
+
+                                                try {
+                                                    val result = FirestoreSetup.runCompleteSetup()
+                                                    setupStatus = if (result.isSuccess) {
+                                                        "✅ ${result.getOrNull()}"
+                                                    } else {
+                                                        "❌ Error: ${result.exceptionOrNull()?.message}"
+                                                    }
+                                                } catch (e: Exception) {
+                                                    setupStatus = "❌ Error: ${e.message}"
+                                                }
+
+                                                isSettingUp = false
+                                            }
+                                        },
+                                        enabled = !isSettingUp,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6F4E37))
+                                    ) {
+                                        if (isSettingUp) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                color = Color.White,
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Text("Run Setup", color = Color.White)
+                                        }
+                                    }
+                                },
+                                dismissButton = {
+                                    Button(
+                                        onClick = {
+                                            showSetupDialog = false
+                                            setupStatus = ""
+                                        },
+                                        enabled = !isSettingUp,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF795548))
+                                    ) {
+                                        Text("Close", color = Color.White)
                                     }
                                 }
                             )
