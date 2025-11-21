@@ -11,7 +11,7 @@ data class Entity_WasteLog(
     val productName: String,
     val category: String,
     val quantity: Int, // Amount wasted
-    val reason: String = "End of day tapon", // Reason for waste
+    val reason: String = "End of day waste", // Reason for waste
     val wasteDate: String, // Format: "yyyy-MM-dd HH:mm:ss"
     val recordedBy: String, // Username who recorded the waste
     val isSyncedToFirebase: Boolean = false // Track sync status

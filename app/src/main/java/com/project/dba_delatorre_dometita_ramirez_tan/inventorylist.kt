@@ -148,6 +148,28 @@ fun InventoryListScreen(
                                 Icon(Icons.Filled.Menu, contentDescription = "Menu", tint = Color.White)
                             }
                         },
+                        actions = {
+                            // Transfer Button
+                            IconButton(onClick = {
+                                navController.navigate(Routes.R_InventoryTransfer.routes)
+                            }) {
+                                Icon(
+                                    Icons.Default.KeyboardArrowRight,
+                                    contentDescription = "Transfer",
+                                    tint = Color.White
+                                )
+                            }
+                            // Waste Button
+                            IconButton(onClick = {
+                                navController.navigate(Routes.R_WasteMarking.routes)
+                            }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Mark Waste",
+                                    tint = Color.White
+                                )
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
                             titleContentColor = Color.White

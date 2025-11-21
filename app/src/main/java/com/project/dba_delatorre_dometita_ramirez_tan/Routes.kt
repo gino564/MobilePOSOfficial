@@ -8,6 +8,8 @@ sealed class Routes(val routes: String) {
     object OrderProcess: Routes("OrderProcessScreen")
     object R_AddProduct: Routes( "AddProductScreen")
     object R_Logo: Routes( "WelcomeLogo")
+    object R_InventoryTransfer: Routes( "InventoryTransferScreen")
+    object R_WasteMarking: Routes( "WasteMarkingScreen")
 
 
 }

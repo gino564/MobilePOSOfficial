@@ -76,6 +76,18 @@ object AuditHelper {
         )
     }
 
+    fun logWaste(productName: String, quantity: Int) {
+        val currentUser = UserSession.currentUser
+        val username = currentUser?.Entity_username ?: "Unknown"
+        val fullName = UserSession.getUserFullName()
+        log(
+            AuditActions.WASTE_MARKED,
+            "$fullName marked $quantity units of $productName as waste",
+            "Success",
+            username
+        )
+    }
+
     // ✅ KEEP THIS - The correct log function with username parameter
     private fun log(action: String, description: String, status: String = "Success", username: String) {
         CoroutineScope(Dispatchers.IO).launch {
