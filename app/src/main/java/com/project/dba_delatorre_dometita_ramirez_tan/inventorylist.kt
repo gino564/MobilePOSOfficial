@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -150,6 +151,16 @@ fun InventoryListScreen(
                             }
                         },
                         actions = {
+                            // Recipe Management Button
+                            IconButton(onClick = {
+                                navController.navigate(Routes.R_RecipeManagement.routes)
+                            }) {
+                                Icon(
+                                    Icons.Default.Restaurant,
+                                    contentDescription = "Manage Recipes",
+                                    tint = Color.White
+                                )
+                            }
                             // Cost Analysis Button
                             IconButton(onClick = {
                                 navController.navigate(Routes.R_IngredientCostView.routes)
