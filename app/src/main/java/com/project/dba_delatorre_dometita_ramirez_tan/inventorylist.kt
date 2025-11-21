@@ -323,12 +323,13 @@ fun InventoryListScreen(
                                             // Dual Inventory Display
                                             Column {
                                                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                                    // ✅ Show total quantity and price
+                                                    // ✅ Show available quantity based on category
                                                     Text(
-                                                        if (product.category.equals("Beverages", ignoreCase = true)) {
-                                                            "Available: ${product.quantity}"
-                                                        } else {
-                                                            "${product.quantity} pcs"
+                                                        when {
+                                                            product.category.equals("Beverages", ignoreCase = true) ||
+                                                            product.category.equals("Pastries", ignoreCase = true) ->
+                                                                "Available: ${product.quantity} servings"
+                                                            else -> "${product.quantity} pcs"
                                                         },
                                                         fontSize = 14.sp,
                                                         fontWeight = FontWeight.Bold
@@ -338,18 +339,28 @@ fun InventoryListScreen(
 
                                                 Spacer(modifier = Modifier.height(4.dp))
 
-                                                // ✅ Show Inventory A and B breakdown
-                                                Row(horizontalArrangement = Arrangement.Start) {
+                                                // ✅ Show Inventory A and B breakdown ONLY for Ingredients
+                                                // For Beverages/Pastries, show that it's recipe-based
+                                                if (product.category.equals("Ingredients", ignoreCase = true)) {
+                                                    Row(horizontalArrangement = Arrangement.Start) {
+                                                        Text(
+                                                            "Inv A: ${product.inventoryA}",
+                                                            fontSize = 12.sp,
+                                                            color = Color.Gray
+                                                        )
+                                                        Spacer(modifier = Modifier.width(12.dp))
+                                                        Text(
+                                                            "Inv B: ${product.inventoryB}",
+                                                            fontSize = 12.sp,
+                                                            color = Color(0xFF6F4E37)
+                                                        )
+                                                    }
+                                                } else {
+                                                    // For Beverages/Pastries - show that it's recipe-based
                                                     Text(
-                                                        "Inv A: ${product.inventoryA}",
-                                                        fontSize = 12.sp,
-                                                        color = Color.Gray
-                                                    )
-                                                    Spacer(modifier = Modifier.width(12.dp))
-                                                    Text(
-                                                        "Inv B: ${product.inventoryB}",
-                                                        fontSize = 12.sp,
-                                                        color = Color(0xFF6F4E37)
+                                                        "📊 Calculated from ingredient stock",
+                                                        fontSize = 11.sp,
+                                                        color = Color(0xFF8B4513)
                                                     )
                                                 }
                                             }

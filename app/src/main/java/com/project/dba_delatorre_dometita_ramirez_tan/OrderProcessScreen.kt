@@ -463,10 +463,13 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
                             AuditHelper.logSale(product.name, quantity, saleTotal)
 
-                            if (product.category.equals("Beverages", ignoreCase = true)) {
-                                android.util.Log.d("OrderProcess", "🔻 Processing Beverages: ${product.name}")
+                            // ✅ Use recipe-based processing for Beverages AND Pastries
+                            if (product.category.equals("Beverages", ignoreCase = true) ||
+                                product.category.equals("Pastries", ignoreCase = true)) {
+                                android.util.Log.d("OrderProcess", "🔻 Processing recipe-based ${product.category}: ${product.name}")
                                 recipeViewModel.processOrder(product.firebaseId, quantity, saveToSales = {})
                             } else {
+                                // Direct stock deduction for Ingredients or other categories
                                 android.util.Log.d("OrderProcess", "📦 Deducting ${product.category}: ${product.name}")
                                 viewModel3.deductProductStock(product.firebaseId, quantity)
                             }
