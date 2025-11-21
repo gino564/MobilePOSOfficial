@@ -10,6 +10,8 @@ data class Entity_Products(
     val name: String,
     val category: String,
     val price: Double,
-    val quantity: Int,
+    val quantity: Int, // Computed total: inventoryA + inventoryB (for backward compatibility)
+    val inventoryA: Int = 0, // Main/Warehouse inventory
+    val inventoryB: Int = 0, // Expendable/Display inventory (deducted first)
     val imageUri: String
 )

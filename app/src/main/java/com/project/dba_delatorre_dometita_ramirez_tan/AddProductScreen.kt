@@ -262,12 +262,15 @@ fun AddProductScreen(
                                         android.util.Log.d("AddProductScreen", "🆕 Creating new product...")
                                         android.util.Log.d("AddProductScreen", "Selected image URI: $selectedImageUri")
 
+                                        val qty = productQuantity.toInt()
                                         viewModel3.insertProduct(
                                             Entity_Products(
                                                 name = productName.trim(),
                                                 category = productCategory.trim(),
                                                 price = productPrice.toDouble(),
-                                                quantity = productQuantity.toInt(),
+                                                quantity = qty,
+                                                inventoryA = qty, // All new stock goes to Inventory A (warehouse)
+                                                inventoryB = 0,   // Inventory B starts empty (transfer later)
                                                 imageUri = selectedImageUri.toString()
                                             )
                                         )

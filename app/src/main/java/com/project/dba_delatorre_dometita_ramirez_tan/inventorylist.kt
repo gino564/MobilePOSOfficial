@@ -297,18 +297,40 @@ fun InventoryListScreen(
                                             Text(product.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                             Text(product.category, fontSize = 14.sp, color = Color(0xFF4E342E))
                                             Spacer(modifier = Modifier.height(6.dp))
-                                            Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                                                // ✅ Show "Available" for beverages, "Stock" for others
-                                                Text(
-                                                    if (product.category.equals("Beverages", ignoreCase = true)) {
-                                                        "Available: ${product.quantity}"
-                                                    } else {
-                                                        "${product.quantity} pcs"
-                                                    },
-                                                    fontSize = 14.sp
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("₱${product.price}", fontSize = 14.sp)
+
+                                            // Dual Inventory Display
+                                            Column {
+                                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                                    // ✅ Show total quantity and price
+                                                    Text(
+                                                        if (product.category.equals("Beverages", ignoreCase = true)) {
+                                                            "Available: ${product.quantity}"
+                                                        } else {
+                                                            "${product.quantity} pcs"
+                                                        },
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text("₱${product.price}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                                }
+
+                                                Spacer(modifier = Modifier.height(4.dp))
+
+                                                // ✅ Show Inventory A and B breakdown
+                                                Row(horizontalArrangement = Arrangement.Start) {
+                                                    Text(
+                                                        "Inv A: ${product.inventoryA}",
+                                                        fontSize = 12.sp,
+                                                        color = Color.Gray
+                                                    )
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Text(
+                                                        "Inv B: ${product.inventoryB}",
+                                                        fontSize = 12.sp,
+                                                        color = Color(0xFF6F4E37)
+                                                    )
+                                                }
+                                            }
                                             }
                                             if (product.quantity == 0) {
                                                 Text(
