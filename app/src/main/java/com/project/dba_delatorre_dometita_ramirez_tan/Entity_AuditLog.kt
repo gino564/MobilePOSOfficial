@@ -26,6 +26,7 @@ object AuditActions {
     const val PRODUCT_ADD = "PRODUCT_ADD"
     const val PRODUCT_EDIT = "PRODUCT_EDIT"
     const val PRODUCT_DELETE = "PRODUCT_DELETE"
+    const val WASTE_MARKED = "WASTE_MARKED"
 //    const val PRICE_UPDATE = "PRICE_UPDATE"
 //    const val RECIPE_ADD = "RECIPE_ADD"
 //    const val RECIPE_UPDATE = "RECIPE_UPDATE"
