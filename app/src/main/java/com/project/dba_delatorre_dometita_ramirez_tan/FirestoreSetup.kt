@@ -47,7 +47,6 @@ object FirestoreSetup {
             for (pastryDoc in pastries) {
                 val pastryName = pastryDoc.getString("name") ?: continue
                 val pastryId = pastryDoc.id
-                val productIdInt = pastryDoc.getLong("id")?.toInt() ?: 0
 
                 Log.d("FirestoreSetup", "🍰 Adding recipe for: $pastryName")
 
@@ -62,9 +61,8 @@ object FirestoreSetup {
                     continue
                 }
 
-                // Create recipe document
+                // Create recipe document (NO productId!)
                 val recipeData = hashMapOf(
-                    "productId" to productIdInt,
                     "productFirebaseId" to pastryId,
                     "productName" to pastryName
                 )
@@ -79,8 +77,19 @@ object FirestoreSetup {
                 val ingredients = getIngredientsForPastry(pastryName)
 
                 for (ingredient in ingredients) {
+                    // Find the ingredient product by name to get its firebaseId
+                    val ingredientProduct = products.find {
+                        it.getString("name")?.equals(ingredient.name, ignoreCase = true) == true
+                    }
+
+                    if (ingredientProduct == null) {
+                        Log.w("FirestoreSetup", "      ⚠️ Ingredient product not found: ${ingredient.name}, skipping")
+                        continue
+                    }
+
                     val ingredientData = hashMapOf(
                         "recipeFirebaseId" to recipeFirebaseId,
+                        "ingredientFirebaseId" to ingredientProduct.id,
                         "ingredientName" to ingredient.name,
                         "quantityNeeded" to ingredient.quantity,
                         "unit" to ingredient.unit
