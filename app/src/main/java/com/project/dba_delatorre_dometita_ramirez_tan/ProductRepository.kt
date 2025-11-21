@@ -181,9 +181,13 @@ class ProductRepository(
                             ""
                         }
 
+                        // Get cost per unit (for ingredients)
+                        val costPerUnit = doc.getDouble("costPerUnit") ?: 0.0
+
                         android.util.Log.d("ProductRepo", "  📦 ${doc.id}: $name")
                         android.util.Log.d("ProductRepo", "     - category: $rawCategory → $category")
                         android.util.Log.d("ProductRepo", "     - quantity: $quantity")
+                        android.util.Log.d("ProductRepo", "     - costPerUnit: $costPerUnit")
                         android.util.Log.d("ProductRepo", "     - imageUri: $imageUri")
 
                         Entity_Products(
@@ -195,6 +199,7 @@ class ProductRepository(
                             quantity = quantity,
                             inventoryA = inventoryA,
                             inventoryB = inventoryB,
+                            costPerUnit = costPerUnit,
                             imageUri = imageUri
                         )
                     } catch (e: Exception) {
