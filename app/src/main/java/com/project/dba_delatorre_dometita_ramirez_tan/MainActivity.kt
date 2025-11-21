@@ -42,6 +42,7 @@
             val salesReportRepository = SalesReportRepository(db2.dao_salesReport())
             val salesReportViewModel = ViewModelProvider(this, SalesReportViewModelFactory(salesReportRepository, repository))[SalesReportViewModel::class.java]
             val recipeRepository = RecipeRepository(db2)
+            val wasteLogRepository = WasteLogRepository(db2.daoWasteLog())
 
 //            migrateFirebaseData()
             setContent {
@@ -49,6 +50,9 @@
                 val navController = rememberNavController()
                 val recipeViewModel: RecipeViewModel = viewModel(  // ✅ ADD THIS
                     factory = RecipeViewModelFactory(recipeRepository)
+                )
+                val wasteLogViewModel: WasteLogViewModel = viewModel(
+                    factory = WasteLogViewModelFactory(wasteLogRepository)
                 )
                 NavHost(navController = navController, startDestination = Routes.R_Logo.routes) {
                     composable(Routes.R_DashboardScreen.routes) {
@@ -95,6 +99,43 @@
                         // ✅ Check access before showing screen
                         if (RoleManager.canAccessRoute(Routes.R_AddProduct.routes)) {
                             AddProductScreen(navController = navController, viewModel3 = productViewModel)
+                        } else {
+                            LaunchedEffect(Unit) {
+                                navController.navigate(RoleManager.getDefaultRoute()) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Access Denied - Redirecting...", color = Color.Red)
+                            }
+                        }
+                    }
+
+                    composable(Routes.R_InventoryTransfer.routes) {
+                        if (RoleManager.canAccessRoute(Routes.R_InventoryTransfer.routes)) {
+                            InventoryTransferScreen(
+                                navController = navController,
+                                productViewModel = productViewModel
+                            )
+                        } else {
+                            LaunchedEffect(Unit) {
+                                navController.navigate(RoleManager.getDefaultRoute()) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Access Denied - Redirecting...", color = Color.Red)
+                            }
+                        }
+                    }
+
+                    composable(Routes.R_WasteMarking.routes) {
+                        if (RoleManager.canAccessRoute(Routes.R_WasteMarking.routes)) {
+                            WasteMarkingScreen(
+                                navController = navController,
+                                productViewModel = productViewModel,
+                                wasteLogViewModel = wasteLogViewModel
+                            )
                         } else {
                             LaunchedEffect(Unit) {
                                 navController.navigate(RoleManager.getDefaultRoute()) {
