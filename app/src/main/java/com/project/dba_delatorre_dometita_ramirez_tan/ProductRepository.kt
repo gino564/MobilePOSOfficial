@@ -98,12 +98,14 @@ class ProductRepository(
                 ""
             }
 
-            // Step 2: Create product data with Firebase image URL
+            // Step 2: Create product data with Firebase image URL (including dual inventory)
             val productData = hashMapOf(
                 "name" to product.name,
                 "category" to product.category,
                 "price" to product.price,
                 "quantity" to product.quantity,
+                "inventoryA" to product.inventoryA,
+                "inventoryB" to product.inventoryB,
                 "imageUri" to cloudinaryImageUrl
             )
 
@@ -160,6 +162,10 @@ class ProductRepository(
                         // ✅ FIX 3: Handle quantity (even if it's 0)
                         val quantity = doc.getLong("quantity")?.toInt() ?: 0
 
+                        // ✅ NEW: Handle inventoryA and inventoryB
+                        val inventoryA = doc.getLong("inventoryA")?.toInt() ?: quantity  // Default to quantity for backward compatibility
+                        val inventoryB = doc.getLong("inventoryB")?.toInt() ?: 0
+
                         // ✅ FIX 4: Handle NaN and empty imageUri - THE KEY FIX!
                         val imageUri = try {
                             val rawImageUri = doc.getString("imageUri") ?: ""
@@ -187,6 +193,8 @@ class ProductRepository(
                             category = category,
                             price = price,
                             quantity = quantity,
+                            inventoryA = inventoryA,
+                            inventoryB = inventoryB,
                             imageUri = imageUri
                         )
                     } catch (e: Exception) {
@@ -285,13 +293,15 @@ class ProductRepository(
 
             android.util.Log.d("ProductRepo", "Final imageUri to save: $cloudinaryImageUrl")
 
-            // Update Firestore with Firebase Storage URL
+            // Update Firestore with Firebase Storage URL (including dual inventory)
             if (product.firebaseId.isNotEmpty()) {
                 val productData = hashMapOf(
                     "name" to product.name,
                     "category" to product.category,
                     "price" to product.price,
                     "quantity" to product.quantity,
+                    "inventoryA" to product.inventoryA,
+                    "inventoryB" to product.inventoryB,
                     "imageUri" to cloudinaryImageUrl
                 )
                 productsCollection.document(product.firebaseId).set(productData).await()
@@ -338,13 +348,13 @@ class ProductRepository(
         }
     }
 
-    // ============ DEDUCT PRODUCT STOCK (FOR NON-BEVERAGES) ============
+    // ============ DEDUCT PRODUCT STOCK (DUAL INVENTORY - B FIRST, THEN A) ============
 
     suspend fun deductProductStock(productFirebaseId: String, quantity: Int) {
         withContext(Dispatchers.IO) {
             try {
                 android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
-                android.util.Log.d("ProductRepo", "📉 Deducting product stock...")
+                android.util.Log.d("ProductRepo", "📉 Deducting product stock (Dual Inventory)...")
                 android.util.Log.d("ProductRepo", "Product Firebase ID: $productFirebaseId")
                 android.util.Log.d("ProductRepo", "Quantity to deduct: $quantity")
 
@@ -358,19 +368,54 @@ class ProductRepository(
                 }
 
                 android.util.Log.d("ProductRepo", "📦 Product found: ${product.name}")
-                android.util.Log.d("ProductRepo", "   Before: ${product.quantity}")
+                android.util.Log.d("ProductRepo", "   Before - Inventory A: ${product.inventoryA}, Inventory B: ${product.inventoryB}")
 
-                // Calculate new quantity
-                val newQuantity = (product.quantity - quantity).coerceAtLeast(0)
-                android.util.Log.d("ProductRepo", "   After: $newQuantity")
+                var remainingToDeduct = quantity
+                var newInventoryA = product.inventoryA
+                var newInventoryB = product.inventoryB
+
+                // Step 1: Deduct from Inventory B first
+                if (newInventoryB > 0) {
+                    val deductFromB = minOf(remainingToDeduct, newInventoryB)
+                    newInventoryB -= deductFromB
+                    remainingToDeduct -= deductFromB
+                    android.util.Log.d("ProductRepo", "   Deducted $deductFromB from Inventory B")
+                }
+
+                // Step 2: If still need more, deduct from Inventory A
+                if (remainingToDeduct > 0 && newInventoryA > 0) {
+                    val deductFromA = minOf(remainingToDeduct, newInventoryA)
+                    newInventoryA -= deductFromA
+                    remainingToDeduct -= deductFromA
+                    android.util.Log.d("ProductRepo", "   Deducted $deductFromA from Inventory A")
+                }
+
+                // Calculate new total quantity
+                val newQuantity = newInventoryA + newInventoryB
+
+                android.util.Log.d("ProductRepo", "   After - Inventory A: $newInventoryA, Inventory B: $newInventoryB, Total: $newQuantity")
+
+                if (remainingToDeduct > 0) {
+                    android.util.Log.w("ProductRepo", "⚠️ Warning: Could not deduct full amount. Remaining: $remainingToDeduct")
+                }
 
                 // Update Room
-                val updatedProduct = product.copy(quantity = newQuantity)
+                val updatedProduct = product.copy(
+                    quantity = newQuantity,
+                    inventoryA = newInventoryA,
+                    inventoryB = newInventoryB
+                )
                 daoProducts.updateProduct(updatedProduct)
 
-                // Update Firebase
+                // Update Firebase (batch update to minimize writes)
                 productsCollection.document(productFirebaseId)
-                    .update("quantity", newQuantity)
+                    .update(
+                        mapOf(
+                            "quantity" to newQuantity,
+                            "inventoryA" to newInventoryA,
+                            "inventoryB" to newInventoryB
+                        )
+                    )
                     .await()
 
                 android.util.Log.d("ProductRepo", "✅ Stock deducted successfully")
@@ -381,6 +426,75 @@ class ProductRepository(
                 android.util.Log.e("ProductRepo", "❌ Failed to deduct stock!")
                 android.util.Log.e("ProductRepo", "Error: ${e.message}", e)
                 android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+        }
+    }
+
+    // ============ TRANSFER INVENTORY (A → B) ============
+
+    suspend fun transferInventory(productFirebaseId: String, quantity: Int): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.d("ProductRepo", "🔄 Transferring inventory A → B...")
+                android.util.Log.d("ProductRepo", "Product Firebase ID: $productFirebaseId")
+                android.util.Log.d("ProductRepo", "Quantity to transfer: $quantity")
+
+                // Get the product
+                val product = daoProducts.getProductByFirebaseId(productFirebaseId)
+
+                if (product == null) {
+                    android.util.Log.w("ProductRepo", "⚠️ Product not found!")
+                    android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                    return@withContext Result.failure(Exception("Product not found"))
+                }
+
+                // Check if enough stock in Inventory A
+                if (product.inventoryA < quantity) {
+                    android.util.Log.w("ProductRepo", "⚠️ Insufficient stock in Inventory A")
+                    android.util.Log.d("ProductRepo", "   Available: ${product.inventoryA}, Requested: $quantity")
+                    android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                    return@withContext Result.failure(Exception("Insufficient stock in Inventory A"))
+                }
+
+                android.util.Log.d("ProductRepo", "📦 Product: ${product.name}")
+                android.util.Log.d("ProductRepo", "   Before - Inventory A: ${product.inventoryA}, Inventory B: ${product.inventoryB}")
+
+                // Transfer from A to B
+                val newInventoryA = product.inventoryA - quantity
+                val newInventoryB = product.inventoryB + quantity
+                val newQuantity = product.quantity // Total remains the same
+
+                android.util.Log.d("ProductRepo", "   After - Inventory A: $newInventoryA, Inventory B: $newInventoryB")
+
+                // Update Room
+                val updatedProduct = product.copy(
+                    inventoryA = newInventoryA,
+                    inventoryB = newInventoryB
+                )
+                daoProducts.updateProduct(updatedProduct)
+
+                // Update Firebase
+                productsCollection.document(productFirebaseId)
+                    .update(
+                        mapOf(
+                            "inventoryA" to newInventoryA,
+                            "inventoryB" to newInventoryB
+                        )
+                    )
+                    .await()
+
+                android.util.Log.d("ProductRepo", "✅ Inventory transferred successfully")
+                android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                Result.success(Unit)
+
+            } catch (e: Exception) {
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                android.util.Log.e("ProductRepo", "❌ Failed to transfer inventory!")
+                android.util.Log.e("ProductRepo", "Error: ${e.message}", e)
+                android.util.Log.e("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+                Result.failure(e)
             }
         }
     }

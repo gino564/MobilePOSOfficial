@@ -113,6 +113,18 @@ class ProductViewModel(private val repository: ProductRepository) : ViewModel() 
             repository.insertSalesReport(sale)
         }
     }
+
+    // ============ DUAL INVENTORY METHODS ============
+
+    fun transferInventory(productFirebaseId: String, quantity: Int, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.transferInventory(productFirebaseId, quantity)
+            onResult(result)
+            if (result.isSuccess) {
+                getAllProducts() // Refresh list after transfer
+            }
+        }
+    }
 }
 
 // ✅ Factory

@@ -11,9 +11,10 @@ import androidx.room.RoomDatabase
         Entity_SalesReport::class,
         Entity_Recipe::class,
         Entity_RecipeIngredient::class,
-        Entity_AuditLog::class
+        Entity_AuditLog::class,
+        Entity_WasteLog::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class Database_Products : RoomDatabase() {
@@ -21,6 +22,7 @@ abstract class Database_Products : RoomDatabase() {
     abstract fun dao_salesReport(): Dao_SalesReport
     abstract fun daoRecipe(): Dao_Recipe
     abstract fun daoAuditLog(): Dao_AuditLog
+    abstract fun daoWasteLog(): Dao_WasteLog
 
     companion object {
         @Volatile

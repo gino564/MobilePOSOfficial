@@ -323,27 +323,63 @@ class RecipeRepository(
             // Get current timestamp for all ingredient sales
             val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
 
-            // Deduct each ingredient
+            // Deduct each ingredient using dual inventory (B first, then A)
             ingredients.forEach { ingredient ->
                 // ✅ Get product by firebaseId
                 val product = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
 
                 if (product != null) {
-                    val amountToDeduct = ingredient.quantityNeeded * quantity
-                    val newQuantity = (product.quantity - amountToDeduct.toInt()).coerceAtLeast(0)
+                    val amountToDeduct = (ingredient.quantityNeeded * quantity).toInt()
 
                     android.util.Log.d("RecipeRepo", "  📉 ${ingredient.ingredientName}:")
-                    android.util.Log.d("RecipeRepo", "     Before: ${product.quantity} ${ingredient.unit}")
+                    android.util.Log.d("RecipeRepo", "     Before - Inventory A: ${product.inventoryA}, Inventory B: ${product.inventoryB}")
                     android.util.Log.d("RecipeRepo", "     Deducting: $amountToDeduct ${ingredient.unit}")
-                    android.util.Log.d("RecipeRepo", "     After: $newQuantity ${ingredient.unit}")
+
+                    var remainingToDeduct = amountToDeduct
+                    var newInventoryA = product.inventoryA
+                    var newInventoryB = product.inventoryB
+
+                    // Step 1: Deduct from Inventory B first
+                    if (newInventoryB > 0) {
+                        val deductFromB = minOf(remainingToDeduct, newInventoryB)
+                        newInventoryB -= deductFromB
+                        remainingToDeduct -= deductFromB
+                        android.util.Log.d("RecipeRepo", "     Deducted $deductFromB from Inventory B")
+                    }
+
+                    // Step 2: If still need more, deduct from Inventory A
+                    if (remainingToDeduct > 0 && newInventoryA > 0) {
+                        val deductFromA = minOf(remainingToDeduct, newInventoryA)
+                        newInventoryA -= deductFromA
+                        remainingToDeduct -= deductFromA
+                        android.util.Log.d("RecipeRepo", "     Deducted $deductFromA from Inventory A")
+                    }
+
+                    val newQuantity = newInventoryA + newInventoryB
+
+                    android.util.Log.d("RecipeRepo", "     After - Inventory A: $newInventoryA, Inventory B: $newInventoryB, Total: $newQuantity")
+
+                    if (remainingToDeduct > 0) {
+                        android.util.Log.w("RecipeRepo", "     ⚠️ Warning: Could not deduct full amount. Remaining: $remainingToDeduct")
+                    }
 
                     // Update local Room database
-                    val updatedProduct = product.copy(quantity = newQuantity)
+                    val updatedProduct = product.copy(
+                        quantity = newQuantity,
+                        inventoryA = newInventoryA,
+                        inventoryB = newInventoryB
+                    )
                     daoProducts.updateProduct(updatedProduct)
 
-                    // Update Firebase
+                    // Update Firebase (batch update to minimize writes)
                     productsCollection.document(product.firebaseId)
-                        .update("quantity", newQuantity)
+                        .update(
+                            mapOf(
+                                "quantity" to newQuantity,
+                                "inventoryA" to newInventoryA,
+                                "inventoryB" to newInventoryB
+                            )
+                        )
                         .await()
 
                     android.util.Log.d("RecipeRepo", "     ✅ Updated in Room and Firebase")
@@ -352,14 +388,15 @@ class RecipeRepository(
                     val ingredientSale = Entity_SalesReport(
                         productName = product.name,
                         category = product.category,  // ✅ This will be "ingredient"
-                        quantity = amountToDeduct.toInt(),  // ✅ Actual grams deducted!
+                        quantity = amountToDeduct,  // ✅ Actual amount deducted
                         price = 0.0,  // Ingredients don't have individual sale price (already in beverage price)
-                        orderDate = currentDate
+                        orderDate = currentDate,
+                        productFirebaseId = product.firebaseId
                     )
 
                     // Save to sales via callback
                     saveToSales(ingredientSale)
-                    android.util.Log.d("RecipeRepo", "     💰 Ingredient sale recorded: ${amountToDeduct.toInt()}g")
+                    android.util.Log.d("RecipeRepo", "     💰 Ingredient sale recorded: $amountToDeduct ${ingredient.unit}")
 
                 } else {
                     android.util.Log.w("RecipeRepo", "  ⚠️ Product not found for ingredient: ${ingredient.ingredientName}")
