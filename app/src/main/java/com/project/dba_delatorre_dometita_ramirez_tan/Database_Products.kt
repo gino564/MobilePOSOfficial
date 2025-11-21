@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
         Entity_AuditLog::class,
         Entity_WasteLog::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class Database_Products : RoomDatabase() {
