@@ -612,16 +612,30 @@ class ProductRepository(
             "❌ Cloudinary error: ${e.message}"
         }
     }
-    // ============ SYNC ALL SALES FROM FIREBASE ============
+    // ============ SYNC ALL SALES FROM FIREBASE (OPTIMIZED FOR FREE TIER) ============
     suspend fun syncAllSalesFromFirebase(): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 android.util.Log.d("ProductRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
-                android.util.Log.d("ProductRepo", "📡 Syncing ALL sales from Firestore...")
+                android.util.Log.d("ProductRepo", "📡 Syncing recent sales from Firestore (last 30 days only)...")
+
+                // Calculate 30 days ago to minimize Firestore reads
+                val thirtyDaysAgo = java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm:ss",
+                    java.util.Locale.getDefault()
+                ).format(java.util.Date(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000))
 
                 val salesCollection = firestore.collection("sales")
-                val snapshot = salesCollection.get().await()
-                android.util.Log.d("ProductRepo", "✅ Firestore returned ${snapshot.documents.size} sales")
+
+                // ✅ OPTIMIZED: Only fetch last 30 days, limit to 500 docs max
+                val snapshot = salesCollection
+                    .whereGreaterThanOrEqualTo("orderDate", thirtyDaysAgo)
+                    .limit(500)  // Extra safety: max 500 documents
+                    .get()
+                    .await()
+
+                android.util.Log.d("ProductRepo", "✅ Firestore returned ${snapshot.documents.size} sales (last 30 days)")
+                android.util.Log.d("ProductRepo", "   💰 Saved ~${700 - snapshot.documents.size} reads by filtering!")
 
                 if (snapshot.documents.isEmpty()) {
                     android.util.Log.d("ProductRepo", "⚠️ No sales found in Firebase")

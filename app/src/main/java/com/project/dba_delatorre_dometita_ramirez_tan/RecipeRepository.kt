@@ -413,4 +413,99 @@ class RecipeRepository(
             android.util.Log.e("RecipeRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
         }
     }
+
+    // ============ CALCULATE RECIPE COST ============
+
+    data class IngredientCostInfo(
+        val ingredientName: String,
+        val quantityNeeded: Double,
+        val unit: String,
+        val costPerUnit: Double,  // Price per unit (e.g., ₱0.50/g)
+        val totalCost: Double     // Cost for this ingredient in recipe
+    )
+
+    data class RecipeCostSummary(
+        val ingredientCosts: List<IngredientCostInfo>,
+        val totalCost: Double,
+        val sellingPrice: Double,
+        val profitMargin: Double,
+        val profitPercentage: Double
+    )
+
+    suspend fun calculateRecipeCost(productFirebaseId: String): RecipeCostSummary? {
+        return try {
+            android.util.Log.d("RecipeRepo", "💰 Calculating recipe cost for: $productFirebaseId")
+
+            // Get the recipe
+            val recipe = daoRecipe.getRecipeByProductFirebaseId(productFirebaseId)
+            if (recipe == null) {
+                android.util.Log.w("RecipeRepo", "⚠️ No recipe found")
+                return null
+            }
+
+            // Get product selling price
+            val product = daoProducts.getProductByFirebaseId(productFirebaseId)
+            val sellingPrice = product?.price ?: 0.0
+
+            // Get all ingredients
+            val ingredients = daoRecipe.getIngredientsByRecipeId(recipe.recipeId)
+            if (ingredients.isEmpty()) {
+                android.util.Log.w("RecipeRepo", "⚠️ No ingredients found")
+                return null
+            }
+
+            // Calculate cost for each ingredient
+            val ingredientCosts = ingredients.mapNotNull { ingredient ->
+                val ingredientProduct = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
+
+                if (ingredientProduct != null) {
+                    // Assume ingredient price is cost per unit in stock
+                    // E.g., if 1kg (1000g) costs ₱500, then price = 500, quantity = 1000g
+                    // Cost per gram = ₱500 / 1000g = ₱0.50/g
+                    val totalStockQuantity = ingredientProduct.quantity.toDouble()
+                    val costPerUnit = if (totalStockQuantity > 0) {
+                        ingredientProduct.price / totalStockQuantity
+                    } else {
+                        0.0
+                    }
+
+                    val totalCost = ingredient.quantityNeeded * costPerUnit
+
+                    IngredientCostInfo(
+                        ingredientName = ingredient.ingredientName,
+                        quantityNeeded = ingredient.quantityNeeded,
+                        unit = ingredient.unit,
+                        costPerUnit = costPerUnit,
+                        totalCost = totalCost
+                    )
+                } else {
+                    null
+                }
+            }
+
+            val totalCost = ingredientCosts.sumOf { it.totalCost }
+            val profitMargin = sellingPrice - totalCost
+            val profitPercentage = if (totalCost > 0) {
+                (profitMargin / totalCost) * 100
+            } else {
+                0.0
+            }
+
+            android.util.Log.d("RecipeRepo", "✅ Total Cost: ₱${"%.2f".format(totalCost)}")
+            android.util.Log.d("RecipeRepo", "   Selling Price: ₱${"%.2f".format(sellingPrice)}")
+            android.util.Log.d("RecipeRepo", "   Profit: ₱${"%.2f".format(profitMargin)} (${"%.1f".format(profitPercentage)}%)")
+
+            RecipeCostSummary(
+                ingredientCosts = ingredientCosts,
+                totalCost = totalCost,
+                sellingPrice = sellingPrice,
+                profitMargin = profitMargin,
+                profitPercentage = profitPercentage
+            )
+
+        } catch (e: Exception) {
+            android.util.Log.e("RecipeRepo", "❌ Error calculating recipe cost: ${e.message}", e)
+            null
+        }
+    }
 }
