@@ -46,6 +46,9 @@ fun InventoryListScreen(
     viewModel3: ProductViewModel,
     recipeViewModel: RecipeViewModel  // ✅ ADD THIS PARAMETER
 ) {
+    // ✅ State to store max servings for recipe-based products
+    var maxServingsMap by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+
     // ✅ Fetch products when screen opens
     LaunchedEffect(Unit) {
         android.util.Log.d("InventoryList", "🔄 Fetching products from Firebase...")
@@ -57,6 +60,29 @@ fun InventoryListScreen(
         }
     }
 
+    // ✅ Calculate max servings for beverages and pastries
+    LaunchedEffect(viewModel3.productList) {
+        val newMaxServingsMap = mutableMapOf<String, Int>()
+
+        viewModel3.productList
+            .filter {
+                it.category.equals("Beverages", ignoreCase = true) ||
+                it.category.equals("Pastries", ignoreCase = true)
+            }
+            .forEach { product ->
+                try {
+                    val maxServings = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    newMaxServingsMap[product.firebaseId] = maxServings
+                    android.util.Log.d("InventoryList", "📊 ${product.name}: $maxServings servings available")
+                } catch (e: Exception) {
+                    android.util.Log.e("InventoryList", "❌ Error calculating servings for ${product.name}: ${e.message}")
+                    newMaxServingsMap[product.firebaseId] = 0
+                }
+            }
+
+        maxServingsMap = newMaxServingsMap
+    }
+
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val isLoading = viewModel3.isLoading
@@ -64,6 +90,9 @@ fun InventoryListScreen(
 
     var productToDelete by remember { mutableStateOf<Entity_Products?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showSetupDialog by remember { mutableStateOf(false) }
+    var setupStatus by remember { mutableStateOf("") }
+    var isSettingUp by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf(TextFieldValue("")) }
     val chipOptions = listOf("All", "Beverages", "Pastries", "Ingredients", "Snacks")
     var selectedOption by remember { mutableStateOf("All") }
@@ -73,36 +102,23 @@ fun InventoryListScreen(
     val selectedTextColor = Color.White
     val unselectedTextColor = Color.Black
 
-    // ✅ ADD THIS: Calculate available quantities for beverages
-    val productsWithAvailability = viewModel3.productList
-        .map { product ->
-            var availableQty by remember { mutableStateOf(product.quantity) }
-
-            LaunchedEffect(product.firebaseId, viewModel3.productList) {
-                availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
-                    // Calculate based on recipe for beverages
-                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
-                    android.util.Log.d("InventoryList", "🧮 ${product.name} (Beverages): Calculated = $calculated")
-                    calculated
-                } else {
-                    // Use actual stock for pastries/ingredients
-                    android.util.Log.d("InventoryList", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
-                    product.quantity
-                }
-            }
-
-            product.copy(quantity = availableQty)
-        }
-
-    // ✅ UPDATED: Use productsWithAvailability instead of products
-    val filteredProducts = productsWithAvailability
+    val filteredProducts = viewModel3.productList
         .filter {
             it.name.contains(searchText.text, ignoreCase = true) &&
                     (selectedOption == "All" || it.category.equals(selectedOption, ignoreCase = true))
         }
         .sortedWith(
-            compareByDescending<Entity_Products> { it.quantity > 0 }  // Available first
-                .thenBy { it.name }                                     // Then A-Z within each group
+            compareByDescending<Entity_Products> {
+                // ✅ Use max servings for beverages/pastries, quantity for ingredients
+                when {
+                    it.category.equals("Beverages", ignoreCase = true) ||
+                    it.category.equals("Pastries", ignoreCase = true) -> {
+                        (maxServingsMap[it.firebaseId] ?: 0) > 0
+                    }
+                    else -> it.quantity > 0
+                }
+            }  // Available first
+                .thenBy { it.name }  // Then A-Z within each group
         )
 
     val gradient = Brush.verticalGradient(
@@ -149,6 +165,16 @@ fun InventoryListScreen(
                             }
                         },
                         actions = {
+                            // Setup/Tools Button
+                            IconButton(onClick = {
+                                showSetupDialog = true
+                            }) {
+                                Icon(
+                                    Icons.Default.Build,
+                                    contentDescription = "Setup Tools",
+                                    tint = Color.White
+                                )
+                            }
                             // Transfer Button
                             IconButton(onClick = {
                                 navController.navigate(Routes.R_InventoryTransfer.routes)
@@ -323,12 +349,16 @@ fun InventoryListScreen(
                                             // Dual Inventory Display
                                             Column {
                                                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                                    // ✅ Show total quantity and price
+                                                    // ✅ Show available quantity based on category
                                                     Text(
-                                                        if (product.category.equals("Beverages", ignoreCase = true)) {
-                                                            "Available: ${product.quantity}"
-                                                        } else {
-                                                            "${product.quantity} pcs"
+                                                        when {
+                                                            product.category.equals("Beverages", ignoreCase = true) ||
+                                                            product.category.equals("Pastries", ignoreCase = true) -> {
+                                                                // Use calculated max servings from recipe
+                                                                val maxServings = maxServingsMap[product.firebaseId] ?: 0
+                                                                "Available: $maxServings servings"
+                                                            }
+                                                            else -> "${product.quantity} pcs"
                                                         },
                                                         fontSize = 14.sp,
                                                         fontWeight = FontWeight.Bold
@@ -338,23 +368,54 @@ fun InventoryListScreen(
 
                                                 Spacer(modifier = Modifier.height(4.dp))
 
-                                                // ✅ Show Inventory A and B breakdown
-                                                Row(horizontalArrangement = Arrangement.Start) {
+                                                // ✅ Show Inventory A and B breakdown ONLY for Ingredients
+                                                // For Beverages/Pastries, show that it's recipe-based
+                                                if (product.category.equals("Ingredients", ignoreCase = true)) {
+                                                    Row(horizontalArrangement = Arrangement.Start) {
+                                                        Text(
+                                                            "Inv A: ${product.inventoryA}",
+                                                            fontSize = 12.sp,
+                                                            color = Color.Gray
+                                                        )
+                                                        Spacer(modifier = Modifier.width(12.dp))
+                                                        Text(
+                                                            "Inv B: ${product.inventoryB}",
+                                                            fontSize = 12.sp,
+                                                            color = Color(0xFF6F4E37)
+                                                        )
+                                                    }
+
+                                                    // ✅ Show cost per unit for ingredients
+                                                    if (product.costPerUnit > 0) {
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            "Cost/Unit: ₱${String.format("%.2f", product.costPerUnit)}",
+                                                            fontSize = 12.sp,
+                                                            color = Color(0xFF2E7D32),
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
+                                                } else {
+                                                    // For Beverages/Pastries - show that it's recipe-based
                                                     Text(
-                                                        "Inv A: ${product.inventoryA}",
-                                                        fontSize = 12.sp,
-                                                        color = Color.Gray
-                                                    )
-                                                    Spacer(modifier = Modifier.width(12.dp))
-                                                    Text(
-                                                        "Inv B: ${product.inventoryB}",
-                                                        fontSize = 12.sp,
-                                                        color = Color(0xFF6F4E37)
+                                                        "📊 Calculated from ingredient stock",
+                                                        fontSize = 11.sp,
+                                                        color = Color(0xFF8B4513)
                                                     )
                                                 }
                                             }
                                             }
-                                            if (product.quantity == 0) {
+
+                                            // ✅ Out of stock indicator - use max servings for recipes, quantity for ingredients
+                                            val isOutOfStock = when {
+                                                product.category.equals("Beverages", ignoreCase = true) ||
+                                                product.category.equals("Pastries", ignoreCase = true) -> {
+                                                    (maxServingsMap[product.firebaseId] ?: 0) == 0
+                                                }
+                                                else -> product.quantity == 0
+                                            }
+
+                                            if (isOutOfStock) {
                                                 Text(
                                                     "OUT OF STOCK",
                                                     fontSize = 10.sp,
@@ -410,6 +471,96 @@ fun InventoryListScreen(
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF795548))
                                     ) {
                                         Text("Cancel", color = Color.White)
+                                    }
+                                }
+                            )
+                        }
+
+                        // Setup Tools Dialog
+                        if (showSetupDialog) {
+                            AlertDialog(
+                                onDismissRequest = { if (!isSettingUp) showSetupDialog = false },
+                                title = { Text("Database Cleanup & Setup", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "⚠️ Run this to fix database issues!",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFD32F2F)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            "This will:",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text("• Remove unused fields from recipes", fontSize = 13.sp)
+                                        Text("• Fix missing ingredient Firebase IDs", fontSize = 13.sp)
+                                        Text("• Transfer stock values to quantity", fontSize = 13.sp)
+                                        Text("• Set realistic cost per unit values", fontSize = 13.sp)
+
+                                        if (setupStatus.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Card(
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (setupStatus.contains("✅")) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                                )
+                                            ) {
+                                                Text(
+                                                    setupStatus,
+                                                    modifier = Modifier.padding(12.dp),
+                                                    fontSize = 13.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                isSettingUp = true
+                                                setupStatus = "🔄 Running setup..."
+
+                                                try {
+                                                    val result = FirestoreSetup.runCompleteSetup()
+                                                    setupStatus = if (result.isSuccess) {
+                                                        "✅ ${result.getOrNull()}"
+                                                    } else {
+                                                        "❌ Error: ${result.exceptionOrNull()?.message}"
+                                                    }
+                                                } catch (e: Exception) {
+                                                    setupStatus = "❌ Error: ${e.message}"
+                                                }
+
+                                                isSettingUp = false
+                                            }
+                                        },
+                                        enabled = !isSettingUp,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6F4E37))
+                                    ) {
+                                        if (isSettingUp) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                color = Color.White,
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Text("Run Setup", color = Color.White)
+                                        }
+                                    }
+                                },
+                                dismissButton = {
+                                    Button(
+                                        onClick = {
+                                            showSetupDialog = false
+                                            setupStatus = ""
+                                        },
+                                        enabled = !isSettingUp,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF795548))
+                                    ) {
+                                        Text("Close", color = Color.White)
                                     }
                                 }
                             )
