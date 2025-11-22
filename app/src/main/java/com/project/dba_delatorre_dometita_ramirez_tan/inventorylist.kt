@@ -78,29 +78,7 @@ fun InventoryListScreen(
     val selectedTextColor = Color.White
     val unselectedTextColor = Color.Black
 
-    // ✅ ADD THIS: Calculate available quantities for beverages
-    val productsWithAvailability = viewModel3.productList
-        .map { product ->
-            var availableQty by remember { mutableStateOf(product.quantity) }
-
-            LaunchedEffect(product.firebaseId, viewModel3.productList) {
-                availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
-                    // Calculate based on recipe for beverages
-                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
-                    android.util.Log.d("InventoryList", "🧮 ${product.name} (Beverages): Calculated = $calculated")
-                    calculated
-                } else {
-                    // Use actual stock for pastries/ingredients
-                    android.util.Log.d("InventoryList", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
-                    product.quantity
-                }
-            }
-
-            product.copy(quantity = availableQty)
-        }
-
-    // ✅ UPDATED: Use productsWithAvailability instead of products
-    val filteredProducts = productsWithAvailability
+    val filteredProducts = viewModel3.productList
         .filter {
             it.name.contains(searchText.text, ignoreCase = true) &&
                     (selectedOption == "All" || it.category.equals(selectedOption, ignoreCase = true))
@@ -286,10 +264,9 @@ fun InventoryListScreen(
                             }
                         }
 
-                        // ✅ UPDATED: Use productsWithAvailability instead of products
                         if (filteredProducts.isEmpty()) {
                             Text(
-                                text = if (productsWithAvailability.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
+                                text = if (viewModel3.productList.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
                                 fontSize = 18.sp,
                                 color = Color.White,
                                 modifier = Modifier.padding(8.dp)
