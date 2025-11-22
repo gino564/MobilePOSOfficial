@@ -1,7 +1,12 @@
 package com.project.dba_delatorre_dometita_ramirez_tan
 
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,12 +25,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat.getSystemService
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.launch
@@ -33,9 +42,20 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 
+data class ReceiptData(
+    val items: List<Pair<String, Int>>, // Product name to quantity
+    val totalPrice: Int,
+    val cashReceived: Double,
+    val change: Double,
+    val paymentMode: String,
+    val gcashNumber: String,
+    val orderDate: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewModel, recipeViewModel: RecipeViewModel) {
+    val context = LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var cartVisible by remember { mutableStateOf(false) }
@@ -45,10 +65,57 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     var showReceiptDialog by remember { mutableStateOf(false) }
     var cashReceived by remember { mutableStateOf("") }
     var refreshTrigger by remember { mutableStateOf(0) }
+    var paymentMode by remember { mutableStateOf("Cash") } // "Cash" or "GCash"
+    var gcashNumber by remember { mutableStateOf("") }
+    var showQuantityDialog by remember { mutableStateOf(false) }
+    var quantityDialogProduct by remember { mutableStateOf<Entity_Products?>(null) }
+    var quantityInput by remember { mutableStateOf("") }
+    var showPrintableReceipt by remember { mutableStateOf(false) }
+    var receiptData by remember { mutableStateOf<ReceiptData?>(null) }
 
     val totalPrice = cartItems.sumOf { it.price.toInt() }
     val gradient = Brush.verticalGradient(listOf(Color(0xFFF3D3BD), Color(0xFF837060)))
 
+    // ✅ FIX: Store available quantities in state (outside of map)
+    var availableQuantities by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+
+    // ✅ Calculate available quantities for recipe-based products (Beverages and Pastries)
+    LaunchedEffect(viewModel3.productList, refreshTrigger) {
+        val quantities = mutableMapOf<String, Int>()
+
+        // Calculate for recipe-based products (Beverages and Pastries)
+        viewModel3.productList
+            .filter {
+                it.category.equals("Beverages", ignoreCase = true) ||
+                it.category.equals("Pastries", ignoreCase = true)
+            }
+            .forEach { product ->
+                try {
+                    val maxServings = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    quantities[product.firebaseId] = maxServings
+                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (${product.category}): $maxServings servings available")
+                } catch (e: Exception) {
+                    android.util.Log.e("OrderProcess", "❌ Error calculating servings for ${product.name}: ${e.message}")
+                    quantities[product.firebaseId] = 0
+                }
+            }
+
+        // For non-recipe products (e.g., Snacks), use direct stock quantity
+        viewModel3.productList
+            .filter {
+                !it.category.equals("Ingredients", ignoreCase = true) &&
+                !it.category.equals("Beverages", ignoreCase = true) &&
+                !it.category.equals("Pastries", ignoreCase = true)
+            }
+            .forEach { product ->
+                quantities[product.firebaseId] = product.quantity
+                android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
+            }
+
+        availableQuantities = quantities
+    }
+
+    // ✅ Map products with calculated quantities
     val products = viewModel3.productList
         .filter { !it.category.equals("Ingredients", ignoreCase = true) }
         .filter {
@@ -56,22 +123,8 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                     it.category.contains(searchQuery.value, ignoreCase = true)
         }
         .map { product ->
-            var availableQty by remember { mutableStateOf(product.quantity) }
-
-            LaunchedEffect(product.firebaseId, viewModel3.productList, refreshTrigger) { // ✅ Added refreshTrigger
-                availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
-                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
-                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (Beverages): Calculated = $calculated")
-                    calculated
-                } else {
-                    android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
-                    product.quantity
-                }
-            }
-
-            product.copy(quantity = availableQty)
+            product.copy(quantity = availableQuantities[product.firebaseId] ?: product.quantity)
         }
-        // ✅ UPDATED: First sort by availability (available first), then alphabetically by name
         .sortedWith(
             compareByDescending<Entity_Products> { it.quantity > 0 }  // Available first
                 .thenBy { it.name }                                     // Then A-Z within each group
@@ -337,15 +390,30 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         IconButton(onClick = {
-                                            cartItems = cartItems + product
-                                        }) {
-                                            Text("+")
-                                        }
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        IconButton(onClick = {
                                             cartItems = cartItems.toMutableList().apply { remove(product) }
                                         }) {
-                                            Text("-")
+                                            Text("-", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                        }
+
+                                        // Clickable quantity
+                                        Text(
+                                            text = "$quantity",
+                                            modifier = Modifier
+                                                .clickable {
+                                                    quantityDialogProduct = product
+                                                    quantityInput = quantity.toString()
+                                                    showQuantityDialog = true
+                                                }
+                                                .background(Color(0xFFF3D3BD), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp
+                                        )
+
+                                        IconButton(onClick = {
+                                            cartItems = cartItems + product
+                                        }) {
+                                            Text("+", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                                         }
                                     }
                                 }
@@ -364,37 +432,107 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        OutlinedTextField(
-                            value = cashReceived,
-                            onValueChange = {
-                                if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
-                                    cashReceived = it
-                                }
-                            },
-                            label = { Text("Enter cash received") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.White,
-                                unfocusedContainerColor = Color.White,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
+                        // Payment Mode Selection
+                        Text("Payment Mode:", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    paymentMode = "Cash"
+                                    gcashNumber = ""
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (paymentMode == "Cash") Color(0xFF5D4037) else Color(0xFFA88164)
+                                )
+                            ) {
+                                Text("Cash", color = Color.White)
+                            }
+                            Button(
+                                onClick = { paymentMode = "GCash" },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (paymentMode == "GCash") Color(0xFF5D4037) else Color(0xFFA88164)
+                                )
+                            ) {
+                                Text("GCash", color = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (paymentMode == "Cash") {
+                            OutlinedTextField(
+                                value = cashReceived,
+                                onValueChange = {
+                                    if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                        cashReceived = it
+                                    }
+                                },
+                                label = { Text("Enter cash received") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                )
                             )
-                        )
+                        } else {
+                            OutlinedTextField(
+                                value = gcashNumber,
+                                onValueChange = {
+                                    // Only allow digits and max 13 characters
+                                    if (it.length <= 13 && (it.isEmpty() || it.matches(Regex("^\\d+$")))) {
+                                        gcashNumber = it
+                                    }
+                                },
+                                label = { Text("Enter 13-digit GCash number") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                ),
+                                supportingText = { Text("${gcashNumber.length}/13 digits") }
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Button(
                             onClick = {
-                                val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
-                                val change = cashAmount - totalPrice
-
-                                if (change >= 0) {
-                                    showReceiptDialog = true
-                                } else {
+                                // Fix: Check if cart is empty
+                                if (cartItems.isEmpty()) {
                                     scope.launch {
-                                        snackbarHostState.showSnackbar("Not enough cash entered.")
+                                        snackbarHostState.showSnackbar("Cart is empty!")
+                                    }
+                                    return@Button
+                                }
+
+                                if (paymentMode == "Cash") {
+                                    val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
+                                    val change = cashAmount - totalPrice
+
+                                    if (change >= 0) {
+                                        showReceiptDialog = true
+                                    } else {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Not enough cash entered.")
+                                        }
+                                    }
+                                } else { // GCash
+                                    if (gcashNumber.length == 13) {
+                                        showReceiptDialog = true
+                                    } else {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Please enter exactly 13 digits for GCash number.")
+                                        }
                                     }
                                 }
                             },
@@ -415,8 +553,8 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                 onDismissRequest = { showReceiptDialog = false },
                 title = { Text("Order Summary", fontWeight = FontWeight.Bold) },
                 text = {
-                    val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
-                    val change = cashAmount - totalPrice
+                    val cashAmount = if (paymentMode == "Cash") cashReceived.toDoubleOrNull() ?: 0.0 else totalPrice.toDouble()
+                    val change = if (paymentMode == "Cash") cashAmount - totalPrice else 0.0
 
                     Column {
                         cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
@@ -426,25 +564,43 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Total: ₱$totalPrice", fontWeight = FontWeight.Bold)
-                        Text("Cash: ₱${String.format("%.2f", cashAmount)}")
-                        Text(
-                            "Change: ₱${String.format("%.2f", if (change >= 0) change else 0.0)}",
-                            fontWeight = FontWeight.Bold,
-                            color = if (change >= 0) Color.Black else Color.Red
-                        )
-                        if (change < 0) {
-                            Text("Not enough cash!", color = Color.Red)
+                        Text("Payment: $paymentMode", fontWeight = FontWeight.Medium)
+                        if (paymentMode == "Cash") {
+                            Text("Cash: ₱${String.format("%.2f", cashAmount)}")
+                            Text(
+                                "Change: ₱${String.format("%.2f", if (change >= 0) change else 0.0)}",
+                                fontWeight = FontWeight.Bold,
+                                color = if (change >= 0) Color.Black else Color.Red
+                            )
+                        } else {
+                            Text("GCash #: ${gcashNumber.take(4)}***${gcashNumber.takeLast(4)}")
                         }
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
-                        val change = cashAmount - totalPrice
+                        val cashAmount = if (paymentMode == "Cash") cashReceived.toDoubleOrNull() ?: 0.0 else totalPrice.toDouble()
+                        val change = if (paymentMode == "Cash") cashAmount - totalPrice else 0.0
 
-                        if (change < 0) return@TextButton
+                        if (paymentMode == "Cash" && change < 0) return@TextButton
 
                         val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+
+                        // Prepare receipt data
+                        val items = cartItems.groupBy { it.firebaseId }.map { (_, items) ->
+                            val product = items.first()
+                            val quantity = items.size
+                            "${product.name} (₱${product.price})" to quantity
+                        }
+                        receiptData = ReceiptData(
+                            items = items,
+                            totalPrice = totalPrice,
+                            cashReceived = cashAmount,
+                            change = if (change >= 0) change else 0.0,
+                            paymentMode = paymentMode,
+                            gcashNumber = if (paymentMode == "GCash") gcashNumber else "",
+                            orderDate = currentDate
+                        )
 
                         cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
                             val product = items.first()
@@ -477,8 +633,11 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
 
                         cartItems = emptyList()
                         cashReceived = ""
+                        gcashNumber = ""
+                        paymentMode = "Cash"
                         showReceiptDialog = false
                         cartVisible = false
+                        showPrintableReceipt = true
 
                         // ✅ Refresh to update available quantities
                         refreshTrigger++
@@ -488,6 +647,332 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                     }
                 }
             )
+        }
+
+        // Quantity Input Dialog
+        if (showQuantityDialog && quantityDialogProduct != null) {
+            AlertDialog(
+                onDismissRequest = { showQuantityDialog = false },
+                title = { Text("Enter Quantity") },
+                text = {
+                    Column {
+                        Text("Product: ${quantityDialogProduct?.name}")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = quantityInput,
+                            onValueChange = {
+                                // Only allow digits
+                                if (it.isEmpty() || it.matches(Regex("^\\d+$"))) {
+                                    quantityInput = it
+                                }
+                            },
+                            label = { Text("Quantity") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val newQuantity = quantityInput.toIntOrNull() ?: 0
+                        if (newQuantity > 0 && quantityDialogProduct != null) {
+                            val product = quantityDialogProduct!!
+                            // Remove all instances of this product
+                            cartItems = cartItems.filter { it.firebaseId != product.firebaseId }
+                            // Add the new quantity
+                            repeat(newQuantity) {
+                                cartItems = cartItems + product
+                            }
+                        }
+                        showQuantityDialog = false
+                        quantityDialogProduct = null
+                        quantityInput = ""
+                    }) {
+                        Text("OK")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showQuantityDialog = false
+                        quantityDialogProduct = null
+                        quantityInput = ""
+                    }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Printable Receipt Dialog
+        if (showPrintableReceipt && receiptData != null) {
+            PrintableReceiptDialog(
+                receiptData = receiptData!!,
+                onDismiss = {
+                    showPrintableReceipt = false
+                    receiptData = null
+                },
+                onPrint = { receipt ->
+                    printReceipt(context, receipt)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun PrintableReceiptDialog(
+    receiptData: ReceiptData,
+    onDismiss: () -> Unit,
+    onPrint: (ReceiptData) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // Receipt Header
+                Text(
+                    text = "RECEIPT",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "Mobile POS System",
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = receiptData.orderDate,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.Gray
+                )
+
+                Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // Items
+                receiptData.items.forEach { (productInfo, quantity) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = productInfo,
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "x$quantity",
+                            fontSize = 14.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // Total
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "TOTAL:",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "₱${receiptData.totalPrice}",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Payment Details
+                Text(
+                    text = "Payment Method: ${receiptData.paymentMode}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                if (receiptData.paymentMode == "Cash") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Cash Received:", fontSize = 14.sp)
+                        Text(
+                            text = "₱${String.format("%.2f", receiptData.cashReceived)}",
+                            fontSize = 14.sp
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Change:", fontSize = 14.sp)
+                        Text(
+                            text = "₱${String.format("%.2f", receiptData.change)}",
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "GCash #: ${receiptData.gcashNumber.take(4)}***${receiptData.gcashNumber.takeLast(4)}",
+                        fontSize = 14.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Thank you for your purchase!",
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { onPrint(receiptData) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037))
+                    ) {
+                        Text("Print", color = Color.White)
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA88164))
+                    ) {
+                        Text("Close", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun printReceipt(context: android.content.Context, receiptData: ReceiptData) {
+    val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as PrintManager
+
+    // Create HTML content for the receipt
+    val htmlContent = """
+        <html>
+        <head>
+            <style>
+                body {
+                    font-family: monospace;
+                    padding: 20px;
+                    max-width: 300px;
+                    margin: 0 auto;
+                }
+                h1 {
+                    text-align: center;
+                    font-size: 24px;
+                    margin-bottom: 5px;
+                }
+                .header {
+                    text-align: center;
+                    margin-bottom: 20px;
+                }
+                .date {
+                    text-align: center;
+                    color: #666;
+                    font-size: 12px;
+                }
+                .divider {
+                    border-top: 1px dashed #000;
+                    margin: 15px 0;
+                }
+                .item-row {
+                    display: flex;
+                    justify-content: space-between;
+                    margin: 5px 0;
+                }
+                .total-row {
+                    display: flex;
+                    justify-content: space-between;
+                    font-weight: bold;
+                    font-size: 18px;
+                    margin-top: 10px;
+                }
+                .payment-info {
+                    margin-top: 15px;
+                }
+                .footer {
+                    text-align: center;
+                    margin-top: 20px;
+                    font-style: italic;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>RECEIPT</h1>
+            <div class="header">
+                <div>Mobile POS System</div>
+            </div>
+            <div class="date">${receiptData.orderDate}</div>
+            <div class="divider"></div>
+            ${receiptData.items.joinToString("") { (productInfo, quantity) ->
+                "<div class=\"item-row\"><span>$productInfo</span><span>x$quantity</span></div>"
+            }}
+            <div class="divider"></div>
+            <div class="total-row">
+                <span>TOTAL:</span>
+                <span>₱${receiptData.totalPrice}</span>
+            </div>
+            <div class="payment-info">
+                <div><strong>Payment Method:</strong> ${receiptData.paymentMode}</div>
+                ${if (receiptData.paymentMode == "Cash") """
+                    <div>Cash Received: ₱${String.format("%.2f", receiptData.cashReceived)}</div>
+                    <div>Change: ₱${String.format("%.2f", receiptData.change)}</div>
+                """ else """
+                    <div>GCash #: ${receiptData.gcashNumber.take(4)}***${receiptData.gcashNumber.takeLast(4)}</div>
+                """}
+            </div>
+            <div class="divider"></div>
+            <div class="footer">Thank you for your purchase!</div>
+        </body>
+        </html>
+    """.trimIndent()
+
+    // Create a WebView to render the HTML
+    val webView = WebView(context)
+    webView.loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
+
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView?, url: String?) {
+            // Create a print adapter
+            val printAdapter = webView.createPrintDocumentAdapter("Receipt")
+
+            // Create a print job
+            val jobName = "Receipt_${System.currentTimeMillis()}"
+            printManager.print(jobName, printAdapter, PrintAttributes.Builder().build())
         }
     }
 }
