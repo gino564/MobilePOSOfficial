@@ -52,23 +52,39 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     // ✅ FIX: Store available quantities in state (outside of map)
     var availableQuantities by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
 
-    // ✅ Calculate available quantities for recipe-based products
+    // ✅ Calculate available quantities for recipe-based products (Beverages and Pastries)
     LaunchedEffect(viewModel3.productList, refreshTrigger) {
         val quantities = mutableMapOf<String, Int>()
+
+        // Calculate for recipe-based products (Beverages and Pastries)
         viewModel3.productList
-            .filter { !it.category.equals("Ingredients", ignoreCase = true) }
-            .forEach { product ->
-                val availableQty = if (product.category.equals("Beverages", ignoreCase = true) ||
-                                       product.category.equals("Pastries", ignoreCase = true)) {
-                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
-                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (${product.category}): Calculated = $calculated")
-                    calculated
-                } else {
-                    android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
-                    product.quantity
-                }
-                quantities[product.firebaseId] = availableQty
+            .filter {
+                it.category.equals("Beverages", ignoreCase = true) ||
+                it.category.equals("Pastries", ignoreCase = true)
             }
+            .forEach { product ->
+                try {
+                    val maxServings = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    quantities[product.firebaseId] = maxServings
+                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (${product.category}): $maxServings servings available")
+                } catch (e: Exception) {
+                    android.util.Log.e("OrderProcess", "❌ Error calculating servings for ${product.name}: ${e.message}")
+                    quantities[product.firebaseId] = 0
+                }
+            }
+
+        // For non-recipe products (e.g., Snacks), use direct stock quantity
+        viewModel3.productList
+            .filter {
+                !it.category.equals("Ingredients", ignoreCase = true) &&
+                !it.category.equals("Beverages", ignoreCase = true) &&
+                !it.category.equals("Pastries", ignoreCase = true)
+            }
+            .forEach { product ->
+                quantities[product.firebaseId] = product.quantity
+                android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
+            }
+
         availableQuantities = quantities
     }
 
