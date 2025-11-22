@@ -11,7 +11,9 @@ data class Entity_SalesReport(
     val quantity: Int,
     val price: Double,
     val orderDate: String,
-    val productFirebaseId: String = ""
+    val productFirebaseId: String = "",
+    val paymentMode: String = "Cash",
+    val gcashReferenceId: String = ""
 )
 data class TopSalesItem(
     val productName: String,
