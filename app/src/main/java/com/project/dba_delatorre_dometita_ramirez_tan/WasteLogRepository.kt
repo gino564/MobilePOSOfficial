@@ -118,7 +118,7 @@ class WasteLogRepository(private val dao: Dao_WasteLog) {
                 if (wasteLogs.isNotEmpty()) {
                     dao.insertWasteLogs(wasteLogs)
                     Log.d("WasteLogRepo", "✅ Synced ${wasteLogs.size} waste logs to local DB")
-                }
+                }else{}
 
             } catch (e: Exception) {
                 Log.e("WasteLogRepo", "❌ Firebase sync failed: ${e.message}")

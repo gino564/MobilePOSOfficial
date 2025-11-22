@@ -10,7 +10,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -182,7 +181,7 @@ fun InventoryListScreen(
                                 navController.navigate(Routes.R_IngredientCostView.routes)
                             }) {
                                 Icon(
-                                    Icons.Default.AttachMoney,
+                                    Icons.Default.Delete,
                                     contentDescription = "View Costs",
                                     tint = Color.White
                                 )
@@ -580,7 +579,7 @@ fun InventoryListScreen(
                         }
                     }
                 }
-            }
+
         )
     }
 }

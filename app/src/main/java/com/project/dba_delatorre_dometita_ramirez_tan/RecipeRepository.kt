@@ -192,10 +192,10 @@ class RecipeRepository(
             val maxServingsPerIngredient = ingredients.map { ingredient ->
                 android.util.Log.d("RecipeRepo", "")
                 android.util.Log.d("RecipeRepo", "  🔍 Checking ingredient: ${ingredient.ingredientName}")
-                android.util.Log.d("RecipeRepo", "     ingredientProductId: ${ingredient.ingredientProductId}")
+                android.util.Log.d("RecipeRepo", "     ingredientProductId: ${ingredient.ingredientFirebaseId}")
 
                 // ✅ Get the product by firebaseId instead of id
-                val ingredientProduct = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
+                val ingredientProduct = daoProducts.getProductByFirebaseId(ingredient.ingredientFirebaseId)
 
                 if (ingredientProduct == null) {
                     android.util.Log.e("RecipeRepo", "     ❌ Product not found!")
@@ -398,7 +398,7 @@ class RecipeRepository(
 
             // Calculate cost for each ingredient
             val ingredientCosts = ingredients.mapNotNull { ingredient ->
-                val ingredientProduct = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
+                val ingredientProduct = daoProducts.getProductByFirebaseId(ingredient.ingredientFirebaseId)
 
                 if (ingredientProduct != null) {
                     // Assume ingredient price is cost per unit in stock

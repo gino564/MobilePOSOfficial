@@ -149,7 +149,7 @@ fun WasteMarkingScreen(
                                         quantity = quantity,
                                         reason = reason,
                                         wasteDate = currentDate,
-                                        recordedBy = UserSession.username
+                                        recordedBy = UserSession.getUserFullName()
                                     )
 
                                     wasteLogViewModel.insertWasteLog(wasteLog)
@@ -198,6 +198,7 @@ fun WasteMarkingScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WasteProductCard(
     product: Entity_Products,
@@ -225,7 +226,7 @@ fun WasteProductCard(
             // Product Image
             Image(
                 painter = rememberAsyncImagePainter(
-                    model = product.imageUri.ifEmpty { R.drawable.default_product }
+                    model = product.imageUri.ifEmpty { R.drawable.img }
                 ),
                 contentDescription = product.name,
                 modifier = Modifier
