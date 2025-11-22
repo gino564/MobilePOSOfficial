@@ -48,6 +48,9 @@ fun InventoryListScreen(
     viewModel3: ProductViewModel,
     recipeViewModel: RecipeViewModel  // ✅ ADD THIS PARAMETER
 ) {
+    // ✅ State to store max servings for recipe-based products
+    var maxServingsMap by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+
     // ✅ Fetch products when screen opens
     LaunchedEffect(Unit) {
         android.util.Log.d("InventoryList", "🔄 Fetching products from Firebase...")
@@ -57,6 +60,29 @@ fun InventoryListScreen(
         viewModel3.productList.forEach { product ->
             android.util.Log.d("InventoryList", "  • ${product.firebaseId}: ${product.name} (Qty: ${product.quantity})")
         }
+    }
+
+    // ✅ Calculate max servings for beverages and pastries
+    LaunchedEffect(viewModel3.productList) {
+        val newMaxServingsMap = mutableMapOf<String, Int>()
+
+        viewModel3.productList
+            .filter {
+                it.category.equals("Beverages", ignoreCase = true) ||
+                it.category.equals("Pastries", ignoreCase = true)
+            }
+            .forEach { product ->
+                try {
+                    val maxServings = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    newMaxServingsMap[product.firebaseId] = maxServings
+                    android.util.Log.d("InventoryList", "📊 ${product.name}: $maxServings servings available")
+                } catch (e: Exception) {
+                    android.util.Log.e("InventoryList", "❌ Error calculating servings for ${product.name}: ${e.message}")
+                    newMaxServingsMap[product.firebaseId] = 0
+                }
+            }
+
+        maxServingsMap = newMaxServingsMap
     }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -84,8 +110,17 @@ fun InventoryListScreen(
                     (selectedOption == "All" || it.category.equals(selectedOption, ignoreCase = true))
         }
         .sortedWith(
-            compareByDescending<Entity_Products> { it.quantity > 0 }  // Available first
-                .thenBy { it.name }                                     // Then A-Z within each group
+            compareByDescending<Entity_Products> {
+                // ✅ Use max servings for beverages/pastries, quantity for ingredients
+                when {
+                    it.category.equals("Beverages", ignoreCase = true) ||
+                    it.category.equals("Pastries", ignoreCase = true) -> {
+                        (maxServingsMap[it.firebaseId] ?: 0) > 0
+                    }
+                    else -> it.quantity > 0
+                }
+            }  // Available first
+                .thenBy { it.name }  // Then A-Z within each group
         )
 
     val gradient = Brush.verticalGradient(
@@ -132,7 +167,7 @@ fun InventoryListScreen(
                             }
                         },
                         actions = {
-                            // Setup/Tools Button (Admin only)
+                            // Setup/Tools Button
                             IconButton(onClick = {
                                 showSetupDialog = true
                             }) {
@@ -329,8 +364,11 @@ fun InventoryListScreen(
                                                     Text(
                                                         when {
                                                             product.category.equals("Beverages", ignoreCase = true) ||
-                                                            product.category.equals("Pastries", ignoreCase = true) ->
-                                                                "Available: ${product.quantity} servings"
+                                                            product.category.equals("Pastries", ignoreCase = true) -> {
+                                                                // Use calculated max servings from recipe
+                                                                val maxServings = maxServingsMap[product.firebaseId] ?: 0
+                                                                "Available: $maxServings servings"
+                                                            }
                                                             else -> "${product.quantity} pcs"
                                                         },
                                                         fontSize = 14.sp,
@@ -357,6 +395,17 @@ fun InventoryListScreen(
                                                             color = Color(0xFF6F4E37)
                                                         )
                                                     }
+
+                                                    // ✅ Show cost per unit for ingredients
+                                                    if (product.costPerUnit > 0) {
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            "Cost/Unit: ₱${String.format("%.2f", product.costPerUnit)}",
+                                                            fontSize = 12.sp,
+                                                            color = Color(0xFF2E7D32),
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
                                                 } else {
                                                     // For Beverages/Pastries - show that it's recipe-based
                                                     Text(
@@ -367,7 +416,17 @@ fun InventoryListScreen(
                                                 }
                                             }
                                             }
-                                            if (product.quantity == 0) {
+
+                                            // ✅ Out of stock indicator - use max servings for recipes, quantity for ingredients
+                                            val isOutOfStock = when {
+                                                product.category.equals("Beverages", ignoreCase = true) ||
+                                                product.category.equals("Pastries", ignoreCase = true) -> {
+                                                    (maxServingsMap[product.firebaseId] ?: 0) == 0
+                                                }
+                                                else -> product.quantity == 0
+                                            }
+
+                                            if (isOutOfStock) {
                                                 Text(
                                                     "OUT OF STOCK",
                                                     fontSize = 10.sp,
@@ -432,11 +491,11 @@ fun InventoryListScreen(
                         if (showSetupDialog) {
                             AlertDialog(
                                 onDismissRequest = { if (!isSettingUp) showSetupDialog = false },
-                                title = { Text("Firestore Setup Tools", fontWeight = FontWeight.Bold) },
+                                title = { Text("Database Cleanup & Setup", fontWeight = FontWeight.Bold) },
                                 text = {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            "⚠️ Run this ONCE to add recipes for pastries and ingredient costs!",
+                                            "⚠️ Run this to fix database issues and add recipes!",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFFD32F2F)
@@ -447,8 +506,11 @@ fun InventoryListScreen(
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold
                                         )
+                                        Text("• Remove unused fields from recipes", fontSize = 13.sp)
+                                        Text("• Fix missing ingredient Firebase IDs", fontSize = 13.sp)
+                                        Text("• Transfer stock values to quantity", fontSize = 13.sp)
+                                        Text("• Set realistic cost per unit values", fontSize = 13.sp)
                                         Text("• Add recipes for all pastries", fontSize = 13.sp)
-                                        Text("• Add ingredient costs per unit", fontSize = 13.sp)
                                         Text("• Enable cost calculations", fontSize = 13.sp)
 
                                         if (setupStatus.isNotEmpty()) {
