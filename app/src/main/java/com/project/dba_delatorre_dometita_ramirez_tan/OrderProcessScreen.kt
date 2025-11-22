@@ -48,7 +48,7 @@ data class ReceiptData(
     val cashReceived: Double,
     val change: Double,
     val paymentMode: String,
-    val gcashNumber: String,
+    val gcashReferenceId: String,
     val orderDate: String
 )
 
@@ -62,11 +62,10 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     var cartItems by remember { mutableStateOf<List<Entity_Products>>(emptyList()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val searchQuery = remember { mutableStateOf("") }
-    var showReceiptDialog by remember { mutableStateOf(false) }
     var cashReceived by remember { mutableStateOf("") }
     var refreshTrigger by remember { mutableStateOf(0) }
     var paymentMode by remember { mutableStateOf("Cash") } // "Cash" or "GCash"
-    var gcashNumber by remember { mutableStateOf("") }
+    var gcashReferenceId by remember { mutableStateOf("") }
     var showQuantityDialog by remember { mutableStateOf(false) }
     var quantityDialogProduct by remember { mutableStateOf<Entity_Products?>(null) }
     var quantityInput by remember { mutableStateOf("") }
@@ -439,7 +438,7 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             Button(
                                 onClick = {
                                     paymentMode = "Cash"
-                                    gcashNumber = ""
+                                    gcashReferenceId = ""
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(
@@ -482,14 +481,14 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                             )
                         } else {
                             OutlinedTextField(
-                                value = gcashNumber,
-                                onValueChange = {
-                                    // Only allow digits and max 13 characters
-                                    if (it.length <= 13 && (it.isEmpty() || it.matches(Regex("^\\d+$")))) {
-                                        gcashNumber = it
+                                value = gcashReferenceId,
+                                onValueChange = { newValue ->
+                                    // Only accept digits and limit to 13 characters
+                                    if (newValue.all { it.isDigit() } && newValue.length <= 13) {
+                                        gcashReferenceId = newValue
                                     }
                                 },
-                                label = { Text("Enter 13-digit GCash number") },
+                                label = { Text("Enter GCash Reference ID (13 digits)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp),
@@ -499,7 +498,12 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent
                                 ),
-                                supportingText = { Text("${gcashNumber.length}/13 digits") }
+                                supportingText = {
+                                    Text(
+                                        text = "${gcashReferenceId.length}/13 digits",
+                                        color = if (gcashReferenceId.length == 13) Color.Green else Color.Gray
+                                    )
+                                }
                             )
                         }
 
@@ -519,22 +523,90 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                     val cashAmount = cashReceived.toDoubleOrNull() ?: 0.0
                                     val change = cashAmount - totalPrice
 
-                                    if (change >= 0) {
-                                        showReceiptDialog = true
-                                    } else {
+                                    if (change < 0) {
+                                        val shortage = totalPrice - cashAmount
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("Not enough cash entered.")
+                                            snackbarHostState.showSnackbar("Insufficient cash! Need ₱${String.format("%.2f", shortage)} more.")
                                         }
+                                        return@Button
                                     }
                                 } else { // GCash
-                                    if (gcashNumber.length == 13) {
-                                        showReceiptDialog = true
-                                    } else {
+                                    if (gcashReferenceId.isBlank()) {
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("Please enter exactly 13 digits for GCash number.")
+                                            snackbarHostState.showSnackbar("Please enter GCash Reference ID.")
                                         }
+                                        return@Button
+                                    }
+                                    if (gcashReferenceId.length != 13) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("GCash Reference ID must be exactly 13 digits.")
+                                        }
+                                        return@Button
                                     }
                                 }
+
+                                // Process the order directly
+                                val cashAmount = if (paymentMode == "Cash") cashReceived.toDoubleOrNull() ?: 0.0 else totalPrice.toDouble()
+                                val change = if (paymentMode == "Cash") cashAmount - totalPrice else 0.0
+                                val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+
+                                // Prepare receipt data
+                                val items = cartItems.groupBy { it.firebaseId }.map { (_, items) ->
+                                    val product = items.first()
+                                    val quantity = items.size
+                                    "${product.name} (₱${product.price})" to quantity
+                                }
+                                receiptData = ReceiptData(
+                                    items = items,
+                                    totalPrice = totalPrice,
+                                    cashReceived = cashAmount,
+                                    change = if (change >= 0) change else 0.0,
+                                    paymentMode = paymentMode,
+                                    gcashReferenceId = if (paymentMode == "GCash") gcashReferenceId else "",
+                                    orderDate = currentDate
+                                )
+
+                                cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
+                                    val product = items.first()
+                                    val quantity = items.size
+                                    val saleTotal = product.price * quantity
+
+                                    val sale = Entity_SalesReport(
+                                        productName = product.name,
+                                        category = product.category,
+                                        quantity = quantity,
+                                        price = product.price,
+                                        orderDate = currentDate,
+                                        productFirebaseId = product.firebaseId,
+                                        paymentMode = paymentMode,
+                                        gcashReferenceId = if (paymentMode == "GCash") gcashReferenceId else ""
+                                    )
+                                    viewModel3.insertSalesReport(sale)
+
+                                    AuditHelper.logSale(product.name, quantity, saleTotal)
+
+                                    // ✅ Use recipe-based processing for Beverages AND Pastries
+                                    if (product.category.equals("Beverages", ignoreCase = true) ||
+                                        product.category.equals("Pastries", ignoreCase = true)) {
+                                        android.util.Log.d("OrderProcess", "🔻 Processing recipe-based ${product.category}: ${product.name}")
+                                        recipeViewModel.processOrder(product.firebaseId, quantity, saveToSales = {})
+                                    } else {
+                                        // Direct stock deduction for Ingredients or other categories
+                                        android.util.Log.d("OrderProcess", "📦 Deducting ${product.category}: ${product.name}")
+                                        viewModel3.deductProductStock(product.firebaseId, quantity)
+                                    }
+                                }
+
+                                cartItems = emptyList()
+                                cashReceived = ""
+                                gcashReferenceId = ""
+                                paymentMode = "Cash"
+                                cartVisible = false
+                                showPrintableReceipt = true
+
+                                // ✅ Refresh to update available quantities
+                                refreshTrigger++
+                                viewModel3.getAllProducts()
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -547,107 +619,6 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                 }
             }
         )
-
-        if (showReceiptDialog) {
-            AlertDialog(
-                onDismissRequest = { showReceiptDialog = false },
-                title = { Text("Order Summary", fontWeight = FontWeight.Bold) },
-                text = {
-                    val cashAmount = if (paymentMode == "Cash") cashReceived.toDoubleOrNull() ?: 0.0 else totalPrice.toDouble()
-                    val change = if (paymentMode == "Cash") cashAmount - totalPrice else 0.0
-
-                    Column {
-                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
-                            val product = items.first()
-                            val quantity = items.size
-                            Text("${product.name} x$quantity - ₱${product.price.toInt() * quantity}")
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Total: ₱$totalPrice", fontWeight = FontWeight.Bold)
-                        Text("Payment: $paymentMode", fontWeight = FontWeight.Medium)
-                        if (paymentMode == "Cash") {
-                            Text("Cash: ₱${String.format("%.2f", cashAmount)}")
-                            Text(
-                                "Change: ₱${String.format("%.2f", if (change >= 0) change else 0.0)}",
-                                fontWeight = FontWeight.Bold,
-                                color = if (change >= 0) Color.Black else Color.Red
-                            )
-                        } else {
-                            Text("GCash #: ${gcashNumber.take(4)}***${gcashNumber.takeLast(4)}")
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val cashAmount = if (paymentMode == "Cash") cashReceived.toDoubleOrNull() ?: 0.0 else totalPrice.toDouble()
-                        val change = if (paymentMode == "Cash") cashAmount - totalPrice else 0.0
-
-                        if (paymentMode == "Cash" && change < 0) return@TextButton
-
-                        val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-
-                        // Prepare receipt data
-                        val items = cartItems.groupBy { it.firebaseId }.map { (_, items) ->
-                            val product = items.first()
-                            val quantity = items.size
-                            "${product.name} (₱${product.price})" to quantity
-                        }
-                        receiptData = ReceiptData(
-                            items = items,
-                            totalPrice = totalPrice,
-                            cashReceived = cashAmount,
-                            change = if (change >= 0) change else 0.0,
-                            paymentMode = paymentMode,
-                            gcashNumber = if (paymentMode == "GCash") gcashNumber else "",
-                            orderDate = currentDate
-                        )
-
-                        cartItems.groupBy { it.firebaseId }.forEach { (_, items) ->
-                            val product = items.first()
-                            val quantity = items.size
-                            val saleTotal = product.price * quantity
-
-                            val sale = Entity_SalesReport(
-                                productName = product.name,
-                                category = product.category,
-                                quantity = quantity,
-                                price = product.price,
-                                orderDate = currentDate,
-                                productFirebaseId = product.firebaseId
-                            )
-                            viewModel3.insertSalesReport(sale)
-
-                            AuditHelper.logSale(product.name, quantity, saleTotal)
-
-                            // ✅ Use recipe-based processing for Beverages AND Pastries
-                            if (product.category.equals("Beverages", ignoreCase = true) ||
-                                product.category.equals("Pastries", ignoreCase = true)) {
-                                android.util.Log.d("OrderProcess", "🔻 Processing recipe-based ${product.category}: ${product.name}")
-                                recipeViewModel.processOrder(product.firebaseId, quantity, saveToSales = {})
-                            } else {
-                                // Direct stock deduction for Ingredients or other categories
-                                android.util.Log.d("OrderProcess", "📦 Deducting ${product.category}: ${product.name}")
-                                viewModel3.deductProductStock(product.firebaseId, quantity)
-                            }
-                        }
-
-                        cartItems = emptyList()
-                        cashReceived = ""
-                        gcashNumber = ""
-                        paymentMode = "Cash"
-                        showReceiptDialog = false
-                        cartVisible = false
-                        showPrintableReceipt = true
-
-                        // ✅ Refresh to update available quantities
-                        refreshTrigger++
-                        viewModel3.getAllProducts()
-                    }) {
-                        Text("Done")
-                    }
-                }
-            )
-        }
 
         // Quantity Input Dialog
         if (showQuantityDialog && quantityDialogProduct != null) {
@@ -835,7 +806,7 @@ fun PrintableReceiptDialog(
                 } else {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "GCash #: ${receiptData.gcashNumber.take(4)}***${receiptData.gcashNumber.takeLast(4)}",
+                        text = "GCash Reference ID: ${receiptData.gcashReferenceId}",
                         fontSize = 14.sp
                     )
                 }
@@ -952,7 +923,7 @@ fun printReceipt(context: android.content.Context, receiptData: ReceiptData) {
                     <div>Cash Received: ₱${String.format("%.2f", receiptData.cashReceived)}</div>
                     <div>Change: ₱${String.format("%.2f", receiptData.change)}</div>
                 """ else """
-                    <div>GCash #: ${receiptData.gcashNumber.take(4)}***${receiptData.gcashNumber.takeLast(4)}</div>
+                    <div>GCash Reference ID: ${receiptData.gcashReferenceId}</div>
                 """}
             </div>
             <div class="divider"></div>
