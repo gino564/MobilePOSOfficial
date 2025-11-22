@@ -49,6 +49,30 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
     val totalPrice = cartItems.sumOf { it.price.toInt() }
     val gradient = Brush.verticalGradient(listOf(Color(0xFFF3D3BD), Color(0xFF837060)))
 
+    // ✅ FIX: Store available quantities in state (outside of map)
+    var availableQuantities by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+
+    // ✅ Calculate available quantities for recipe-based products
+    LaunchedEffect(viewModel3.productList, refreshTrigger) {
+        val quantities = mutableMapOf<String, Int>()
+        viewModel3.productList
+            .filter { !it.category.equals("Ingredients", ignoreCase = true) }
+            .forEach { product ->
+                val availableQty = if (product.category.equals("Beverages", ignoreCase = true) ||
+                                       product.category.equals("Pastries", ignoreCase = true)) {
+                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
+                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (${product.category}): Calculated = $calculated")
+                    calculated
+                } else {
+                    android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
+                    product.quantity
+                }
+                quantities[product.firebaseId] = availableQty
+            }
+        availableQuantities = quantities
+    }
+
+    // ✅ Map products with calculated quantities
     val products = viewModel3.productList
         .filter { !it.category.equals("Ingredients", ignoreCase = true) }
         .filter {
@@ -56,22 +80,8 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                     it.category.contains(searchQuery.value, ignoreCase = true)
         }
         .map { product ->
-            var availableQty by remember { mutableStateOf(product.quantity) }
-
-            LaunchedEffect(product.firebaseId, viewModel3.productList, refreshTrigger) { // ✅ Added refreshTrigger
-                availableQty = if (product.category.equals("Beverages", ignoreCase = true)) {
-                    val calculated = recipeViewModel.getAvailableQuantity(product.firebaseId)
-                    android.util.Log.d("OrderProcess", "🧮 ${product.name} (Beverages): Calculated = $calculated")
-                    calculated
-                } else {
-                    android.util.Log.d("OrderProcess", "📦 ${product.name} (${product.category}): Stock = ${product.quantity}")
-                    product.quantity
-                }
-            }
-
-            product.copy(quantity = availableQty)
+            product.copy(quantity = availableQuantities[product.firebaseId] ?: product.quantity)
         }
-        // ✅ UPDATED: First sort by availability (available first), then alphabetically by name
         .sortedWith(
             compareByDescending<Entity_Products> { it.quantity > 0 }  // Available first
                 .thenBy { it.name }                                     // Then A-Z within each group
