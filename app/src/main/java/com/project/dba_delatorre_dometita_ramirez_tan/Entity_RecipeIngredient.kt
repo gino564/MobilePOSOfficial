@@ -12,12 +12,6 @@ import androidx.room.PrimaryKey
             parentColumns = ["recipeId"],
             childColumns = ["recipeId"],
             onDelete = ForeignKey.CASCADE
-        ),
-        ForeignKey(
-            entity = Entity_Products::class,
-            parentColumns = ["firebaseId"],
-            childColumns = ["ingredientProductId"],
-            onDelete = ForeignKey.NO_ACTION
         )
     ]
 )
@@ -25,7 +19,7 @@ data class Entity_RecipeIngredient(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val firebaseId: String = "",
     val recipeId: Int,
-    val ingredientProductId: String,
+    val ingredientFirebaseId: String,
     val ingredientName: String,
     val quantityNeeded: Double,
     val unit: String = "g"

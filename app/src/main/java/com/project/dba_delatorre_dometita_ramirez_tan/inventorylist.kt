@@ -10,6 +10,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -175,6 +177,16 @@ fun InventoryListScreen(
                                     tint = Color.White
                                 )
                             }
+                            // Cost Analysis Button
+                            IconButton(onClick = {
+                                navController.navigate(Routes.R_IngredientCostView.routes)
+                            }) {
+                                Icon(
+                                    Icons.Default.AttachMoney,
+                                    contentDescription = "View Costs",
+                                    tint = Color.White
+                                )
+                            }
                             // Transfer Button
                             IconButton(onClick = {
                                 navController.navigate(Routes.R_InventoryTransfer.routes)
@@ -287,10 +299,9 @@ fun InventoryListScreen(
                             }
                         }
 
-                        // ✅ UPDATED: Use productsWithAvailability instead of products
                         if (filteredProducts.isEmpty()) {
                             Text(
-                                text = if (productsWithAvailability.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
+                                text = if (viewModel3.productList.isEmpty()) "No products available. Add products in Firebase!" else "No products match your search.",
                                 fontSize = 18.sp,
                                 color = Color.White,
                                 modifier = Modifier.padding(8.dp)
@@ -484,7 +495,7 @@ fun InventoryListScreen(
                                 text = {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            "⚠️ Run this to fix database issues!",
+                                            "⚠️ Run this to fix database issues and add recipes!",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFFD32F2F)
@@ -499,6 +510,8 @@ fun InventoryListScreen(
                                         Text("• Fix missing ingredient Firebase IDs", fontSize = 13.sp)
                                         Text("• Transfer stock values to quantity", fontSize = 13.sp)
                                         Text("• Set realistic cost per unit values", fontSize = 13.sp)
+                                        Text("• Add recipes for all pastries", fontSize = 13.sp)
+                                        Text("• Enable cost calculations", fontSize = 13.sp)
 
                                         if (setupStatus.isNotEmpty()) {
                                             Spacer(modifier = Modifier.height(12.dp))

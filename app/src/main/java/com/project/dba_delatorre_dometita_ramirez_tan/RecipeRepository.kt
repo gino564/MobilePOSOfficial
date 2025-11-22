@@ -30,7 +30,6 @@ class RecipeRepository(
                 try {
                     Entity_Recipe(
                         firebaseId = doc.id,
-                        productId = (doc.getLong("productId") ?: 0).toInt(),
                         productFirebaseId = doc.getString("productFirebaseId") ?: "",
                         productName = doc.getString("productName") ?: ""
                     )
@@ -68,95 +67,39 @@ class RecipeRepository(
 
             val ingredientsList = ingredientsSnapshot.documents.mapNotNull { doc ->
                 try {
-                    // Get the recipeFirebaseId from Firebase
                     val recipeFirebaseId = doc.getString("recipeFirebaseId") ?: ""
+                    val ingredientFirebaseId = doc.getString("ingredientFirebaseId") ?: ""
                     val ingredientName = doc.getString("ingredientName") ?: ""
 
-                    android.util.Log.d("RecipeRepo", "")
                     android.util.Log.d("RecipeRepo", "🔍 Processing ingredient: $ingredientName")
-                    android.util.Log.d("RecipeRepo", "   Document ID: ${doc.id}")
-                    android.util.Log.d("RecipeRepo", "   recipeFirebaseId: $recipeFirebaseId")
+                    android.util.Log.d("RecipeRepo", "   ingredientFirebaseId: $ingredientFirebaseId")
 
-                    // ✅ FIX: Find recipe by its own firebaseId
                     val recipe = daoRecipe.getRecipeByFirebaseId(recipeFirebaseId)
-
                     if (recipe == null) {
-                        android.util.Log.e("RecipeRepo", "   ❌ Recipe NOT found with firebaseId: $recipeFirebaseId")
-                        android.util.Log.e("RecipeRepo", "   Available recipes in Room:")
-                        daoRecipe.getAllRecipes().forEach { r ->
-                            android.util.Log.e("RecipeRepo", "     - ${r.productName} (firebaseId: '${r.firebaseId}')")
-                        }
+                        android.util.Log.e("RecipeRepo", "   ❌ Recipe NOT found")
                         return@mapNotNull null
                     }
 
-                    android.util.Log.d("RecipeRepo", "   ✅ Recipe found: ${recipe.productName} (recipeId: ${recipe.recipeId})")
-
-                    // Map Firebase fields to your local structure
-                    val ingredient = Entity_RecipeIngredient(
+                    Entity_RecipeIngredient(
                         firebaseId = doc.id,
                         recipeId = recipe.recipeId,
-                        ingredientProductId = "",  // Will be updated below
+                        ingredientFirebaseId = ingredientFirebaseId,
                         ingredientName = ingredientName,
                         quantityNeeded = (doc.getLong("quantityNeeded") ?: 0).toDouble(),
                         unit = doc.getString("unit") ?: "g"
                     )
-
-                    android.util.Log.d("RecipeRepo", "   ✅ Ingredient mapped to recipeId: ${recipe.recipeId}")
-                    ingredient
-
                 } catch (e: Exception) {
                     android.util.Log.e("RecipeRepo", "❌ Error parsing ingredient: ${e.message}", e)
                     null
                 }
             }
 
-            android.util.Log.d("RecipeRepo", "")
-            android.util.Log.d("RecipeRepo", "📋 Successfully fetched ${ingredientsList.size} ingredients")
+            android.util.Log.d("RecipeRepo", "📋 Fetched ${ingredientsList.size} ingredients")
 
-// Step 4: Update ingredientProductId by finding products
-            android.util.Log.d("RecipeRepo", "")
-            android.util.Log.d("RecipeRepo", "🔗 Linking ingredients to products...")
-
-            val updatedIngredientsList = ingredientsList.mapNotNull { ingredient ->
-                android.util.Log.d("RecipeRepo", "")
-                android.util.Log.d("RecipeRepo", "🔍 Looking for product: '${ingredient.ingredientName}'")
-
-                // Find the product by name
-                val allProducts = daoProducts.getAllProducts()
-                android.util.Log.d("RecipeRepo", "   Searching among ${allProducts.size} products...")
-
-                val product = allProducts.find {
-                    it.name.trim().equals(ingredient.ingredientName.trim(), ignoreCase = true)
-                }
-
-                if (product != null) {
-                    android.util.Log.d("RecipeRepo", "   ✅ Product found: '${product.name}'")
-                    android.util.Log.d("RecipeRepo", "      Product Firebase ID: ${product.firebaseId}")  // ✅ Changed
-                    android.util.Log.d("RecipeRepo", "      Stock: ${product.quantity}")
-                    ingredient.copy(ingredientProductId = product.firebaseId)  // ✅ Use firebaseId instead of id
-                } else {
-                    android.util.Log.e("RecipeRepo", "   ❌ Product NOT found!")
-                    android.util.Log.e("RecipeRepo", "   Available products:")
-                    allProducts.forEach { p ->
-                        android.util.Log.e("RecipeRepo", "     - '${p.name}' (category: ${p.category})")
-                    }
-                    null
-                }
-            }
-
-            android.util.Log.d("RecipeRepo", "")
-            android.util.Log.d("RecipeRepo", "📦 Successfully linked ${updatedIngredientsList.size} ingredients")
-
-// Step 5: Insert ingredients
+            // Insert ingredients
             daoRecipe.clearAllIngredients()
-            if (updatedIngredientsList.isNotEmpty()) {
-                android.util.Log.d("RecipeRepo", "💾 Inserting ${updatedIngredientsList.size} ingredients into Room...")
-
-                updatedIngredientsList.forEach { ing ->
-                    android.util.Log.d("RecipeRepo", "   - ${ing.ingredientName} (recipeId: ${ing.recipeId}, productId: ${ing.ingredientProductId})")
-                }
-
-                daoRecipe.insertAllIngredients(updatedIngredientsList)
+            if (ingredientsList.isNotEmpty()) {
+                daoRecipe.insertAllIngredients(ingredientsList)
 
                 // Verify insertion
                 android.util.Log.d("RecipeRepo", "")
@@ -325,8 +268,7 @@ class RecipeRepository(
 
             // Deduct each ingredient using dual inventory (B first, then A)
             ingredients.forEach { ingredient ->
-                // ✅ Get product by firebaseId
-                val product = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
+                val product = daoProducts.getProductByFirebaseId(ingredient.ingredientFirebaseId)
 
                 if (product != null) {
                     val amountToDeduct = (ingredient.quantityNeeded * quantity).toInt()
@@ -411,6 +353,101 @@ class RecipeRepository(
             android.util.Log.e("RecipeRepo", "❌ Error deducting ingredients!")
             android.util.Log.e("RecipeRepo", "Error: ${e.message}", e)
             android.util.Log.e("RecipeRepo", "━━━━━━━━━━━━━━━━━━━━━━━━")
+        }
+    }
+
+    // ============ CALCULATE RECIPE COST ============
+
+    data class IngredientCostInfo(
+        val ingredientName: String,
+        val quantityNeeded: Double,
+        val unit: String,
+        val costPerUnit: Double,  // Price per unit (e.g., ₱0.50/g)
+        val totalCost: Double     // Cost for this ingredient in recipe
+    )
+
+    data class RecipeCostSummary(
+        val ingredientCosts: List<IngredientCostInfo>,
+        val totalCost: Double,
+        val sellingPrice: Double,
+        val profitMargin: Double,
+        val profitPercentage: Double
+    )
+
+    suspend fun calculateRecipeCost(productFirebaseId: String): RecipeCostSummary? {
+        return try {
+            android.util.Log.d("RecipeRepo", "💰 Calculating recipe cost for: $productFirebaseId")
+
+            // Get the recipe
+            val recipe = daoRecipe.getRecipeByProductFirebaseId(productFirebaseId)
+            if (recipe == null) {
+                android.util.Log.w("RecipeRepo", "⚠️ No recipe found")
+                return null
+            }
+
+            // Get product selling price
+            val product = daoProducts.getProductByFirebaseId(productFirebaseId)
+            val sellingPrice = product?.price ?: 0.0
+
+            // Get all ingredients
+            val ingredients = daoRecipe.getIngredientsByRecipeId(recipe.recipeId)
+            if (ingredients.isEmpty()) {
+                android.util.Log.w("RecipeRepo", "⚠️ No ingredients found")
+                return null
+            }
+
+            // Calculate cost for each ingredient
+            val ingredientCosts = ingredients.mapNotNull { ingredient ->
+                val ingredientProduct = daoProducts.getProductByFirebaseId(ingredient.ingredientProductId)
+
+                if (ingredientProduct != null) {
+                    // Assume ingredient price is cost per unit in stock
+                    // E.g., if 1kg (1000g) costs ₱500, then price = 500, quantity = 1000g
+                    // Cost per gram = ₱500 / 1000g = ₱0.50/g
+                    val totalStockQuantity = ingredientProduct.quantity.toDouble()
+                    val costPerUnit = if (totalStockQuantity > 0) {
+                        ingredientProduct.price / totalStockQuantity
+                    } else {
+                        0.0
+                    }
+
+                    val totalCost = ingredient.quantityNeeded * costPerUnit
+
+                    IngredientCostInfo(
+                        ingredientName = ingredient.ingredientName,
+                        quantityNeeded = ingredient.quantityNeeded,
+                        unit = ingredient.unit,
+                        costPerUnit = costPerUnit,
+                        totalCost = totalCost
+                    )
+                } else {
+                    null
+                }
+            }
+
+            val totalCost = ingredientCosts.sumOf { it.totalCost }
+            val profitMargin = sellingPrice - totalCost
+            val profitPercentage = if (totalCost > 0) {
+                (profitMargin / totalCost) * 100
+            } else {
+                0.0
+            }
+
+            android.util.Log.d("RecipeRepo", "✅ Total Cost: ₱${"%.2f".format(totalCost)}")
+            android.util.Log.d("RecipeRepo", "   Selling Price: ₱${"%.2f".format(sellingPrice)}")
+            android.util.Log.d("RecipeRepo", "   Profit: ₱${"%.2f".format(profitMargin)} (${"%.1f".format(profitPercentage)}%)")
+
+            RecipeCostSummary(
+                ingredientCosts = ingredientCosts,
+                totalCost = totalCost,
+                sellingPrice = sellingPrice,
+                profitMargin = profitMargin,
+                profitPercentage = profitPercentage
+            )
+
+        } catch (e: Exception) {
+            android.util.Log.e("RecipeRepo", "❌ Error calculating recipe cost: ${e.message}", e)
+            null
         }
     }
 }

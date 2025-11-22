@@ -53,6 +53,11 @@ class RecipeViewModel(private val repository: RecipeRepository) : ViewModel() {
             repository.deductIngredients(productFirebaseId, quantity, saveToSales)
         }
     }
+
+    // Calculate recipe cost breakdown
+    suspend fun getRecipeCost(productFirebaseId: String): RecipeRepository.RecipeCostSummary? {
+        return repository.calculateRecipeCost(productFirebaseId)
+    }
 }
 
 class RecipeViewModelFactory(private val repository: RecipeRepository) :

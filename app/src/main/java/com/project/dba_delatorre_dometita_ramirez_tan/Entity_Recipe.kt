@@ -7,7 +7,6 @@ import androidx.room.PrimaryKey
 data class Entity_Recipe(
     @PrimaryKey(autoGenerate = true) val recipeId: Int = 0,
     val firebaseId: String = "",
-    val productId: Int,
     val productFirebaseId: String = "",
     val productName: String
 )
