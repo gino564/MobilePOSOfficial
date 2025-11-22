@@ -482,9 +482,14 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                         } else {
                             OutlinedTextField(
                                 value = gcashReferenceId,
-                                onValueChange = { gcashReferenceId = it },
-                                label = { Text("Enter GCash Reference ID") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                                onValueChange = { newValue ->
+                                    // Only accept digits and limit to 13 characters
+                                    if (newValue.all { it.isDigit() } && newValue.length <= 13) {
+                                        gcashReferenceId = newValue
+                                    }
+                                },
+                                label = { Text("Enter GCash Reference ID (13 digits)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = TextFieldDefaults.colors(
@@ -492,7 +497,13 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                     unfocusedContainerColor = Color.White,
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent
-                                )
+                                ),
+                                supportingText = {
+                                    Text(
+                                        text = "${gcashReferenceId.length}/13 digits",
+                                        color = if (gcashReferenceId.length == 13) Color.Green else Color.Gray
+                                    )
+                                }
                             )
                         }
 
@@ -523,6 +534,12 @@ fun OrderProcessScreen(navController: NavController, viewModel3: ProductViewMode
                                     if (gcashReferenceId.isBlank()) {
                                         scope.launch {
                                             snackbarHostState.showSnackbar("Please enter GCash Reference ID.")
+                                        }
+                                        return@Button
+                                    }
+                                    if (gcashReferenceId.length != 13) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("GCash Reference ID must be exactly 13 digits.")
                                         }
                                         return@Button
                                     }
