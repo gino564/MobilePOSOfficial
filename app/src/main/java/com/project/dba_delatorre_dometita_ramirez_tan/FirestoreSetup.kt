@@ -162,6 +162,81 @@ object FirestoreSetup {
     }
 
     /**
+     * Add missing ingredient products to Firestore
+     * Adds: Butter, Flour, Egg with proper structure
+     */
+    suspend fun addMissingIngredients(): Result<String> {
+        return try {
+            Log.d("FirestoreSetup", "🥘 Adding missing ingredient products...")
+
+            val productsSnapshot = firestore.collection("products").get().await()
+            val existingProducts = productsSnapshot.documents
+
+            // Define missing ingredients with their properties
+            val missingIngredients = listOf(
+                MissingIngredient(
+                    name = "Flour",
+                    price = 50.0,        // ₱50 per 1kg
+                    quantity = 1000,     // 1000g = 1kg
+                    costPerUnit = 0.05   // ₱0.05 per gram
+                ),
+                MissingIngredient(
+                    name = "Butter",
+                    price = 300.0,       // ₱300 per 1kg
+                    quantity = 1000,     // 1000g = 1kg
+                    costPerUnit = 0.30   // ₱0.30 per gram
+                ),
+                MissingIngredient(
+                    name = "Egg",
+                    price = 96.0,        // ₱96 per dozen (12 pcs)
+                    quantity = 12,       // 12 pieces
+                    costPerUnit = 8.0    // ₱8.00 per piece
+                )
+            )
+
+            var addedCount = 0
+
+            for (ingredient in missingIngredients) {
+                // Check if ingredient already exists
+                val exists = existingProducts.any {
+                    it.getString("name")?.equals(ingredient.name, ignoreCase = true) == true
+                }
+
+                if (!exists) {
+                    // Create ingredient product data
+                    val productData = hashMapOf(
+                        "name" to ingredient.name,
+                        "category" to "Ingredients",
+                        "price" to ingredient.price,
+                        "quantity" to ingredient.quantity,
+                        "inventoryA" to ingredient.quantity,
+                        "inventoryB" to 0,
+                        "costPerUnit" to ingredient.costPerUnit,
+                        "imageUri" to ""
+                    )
+
+                    // Add to Firestore
+                    val docRef = firestore.collection("products").add(productData).await()
+                    addedCount++
+                    Log.d("FirestoreSetup", "   ✅ Added ${ingredient.name}: ₱${String.format("%.2f", ingredient.price)} (${ingredient.quantity} units, ₱${String.format("%.2f", ingredient.costPerUnit)}/unit)")
+                    Log.d("FirestoreSetup", "      Firebase ID: ${docRef.id}")
+                } else {
+                    Log.d("FirestoreSetup", "   ⏭️ ${ingredient.name} already exists, skipping...")
+                }
+            }
+
+            Log.d("FirestoreSetup", "")
+            Log.d("FirestoreSetup", "✅ Added $addedCount missing ingredient products")
+
+            Result.success("Added $addedCount missing ingredients")
+
+        } catch (e: Exception) {
+            Log.e("FirestoreSetup", "❌ Error adding missing ingredients: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Fix cost per unit to be realistic per unit prices
      * Uses actual unit prices (e.g., per gram, per ml)
      */
@@ -408,8 +483,19 @@ object FirestoreSetup {
             Log.d("FirestoreSetup", "----------------------------------------")
             Log.d("FirestoreSetup", "")
 
-            // Step 2: Fix recipe ingredients
-            Log.d("FirestoreSetup", "Step 2: Fixing recipe ingredients...")
+            // Step 2: Add missing ingredient products
+            Log.d("FirestoreSetup", "Step 2: Adding missing ingredient products...")
+            val addIngredientsResult = addMissingIngredients()
+            if (addIngredientsResult.isFailure) {
+                Log.w("FirestoreSetup", "⚠️ Add ingredients warning: ${addIngredientsResult.exceptionOrNull()?.message}")
+            }
+
+            Log.d("FirestoreSetup", "")
+            Log.d("FirestoreSetup", "----------------------------------------")
+            Log.d("FirestoreSetup", "")
+
+            // Step 3: Fix recipe ingredients
+            Log.d("FirestoreSetup", "Step 3: Fixing recipe ingredients...")
             val fixIngredientsResult = fixRecipeIngredients()
             if (fixIngredientsResult.isFailure) {
                 Log.w("FirestoreSetup", "⚠️ Fix ingredients warning: ${fixIngredientsResult.exceptionOrNull()?.message}")
@@ -419,8 +505,8 @@ object FirestoreSetup {
             Log.d("FirestoreSetup", "----------------------------------------")
             Log.d("FirestoreSetup", "")
 
-            // Step 3: Transfer stock to quantity
-            Log.d("FirestoreSetup", "Step 3: Transferring stock to quantity...")
+            // Step 4: Transfer stock to quantity
+            Log.d("FirestoreSetup", "Step 4: Transferring stock to quantity...")
             val transferResult = transferStockToQuantity()
             if (transferResult.isFailure) {
                 Log.w("FirestoreSetup", "⚠️ Transfer warning: ${transferResult.exceptionOrNull()?.message}")
@@ -430,8 +516,8 @@ object FirestoreSetup {
             Log.d("FirestoreSetup", "----------------------------------------")
             Log.d("FirestoreSetup", "")
 
-            // Step 4: Fix cost per unit to realistic values
-            Log.d("FirestoreSetup", "Step 4: Fixing cost per unit...")
+            // Step 5: Fix cost per unit to realistic values
+            Log.d("FirestoreSetup", "Step 5: Fixing cost per unit...")
             val costResult = fixCostPerUnit()
             if (costResult.isFailure) {
                 return Result.failure(costResult.exceptionOrNull()!!)
@@ -441,8 +527,8 @@ object FirestoreSetup {
             Log.d("FirestoreSetup", "----------------------------------------")
             Log.d("FirestoreSetup", "")
 
-            // Step 5: Add recipes for pastries
-            Log.d("FirestoreSetup", "Step 5: Adding recipes for pastries...")
+            // Step 6: Add recipes for pastries
+            Log.d("FirestoreSetup", "Step 6: Adding recipes for pastries...")
             val recipeResult = addRecipesForPastries()
             if (recipeResult.isFailure) {
                 Log.w("FirestoreSetup", "⚠️ Recipe setup warning: ${recipeResult.exceptionOrNull()?.message}")
@@ -465,5 +551,12 @@ object FirestoreSetup {
         val name: String,
         val quantity: Double,
         val unit: String
+    )
+
+    private data class MissingIngredient(
+        val name: String,
+        val price: Double,
+        val quantity: Int,
+        val costPerUnit: Double
     )
 }
